@@ -24,6 +24,9 @@ export const tagsRoutes = new Elysia({ prefix: "/tags" })
           orderBy: (t, { desc }) => [desc(t.id)],
           limit: pageSize,
           offset,
+          with: {
+            tagType: true,
+          }
         }),
         db.$count(tagsTable),
       ]);

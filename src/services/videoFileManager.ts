@@ -7,8 +7,11 @@ import { and, eq } from "drizzle-orm";
 import { createLogger } from "../utils/logger";
 import { getFileCount, getFileUniqueId } from "../utils/file";
 import { videoFilesTable } from "../entities/VideoFile";
+import { videosTable } from "../entities/Video";
+import { videoUniqueContentsTable } from "../entities/VideoUniqueContent";
 import { ffmpegManager } from "./ffmpegManager";
 import { videoFileUniquesTable } from "../entities/VideoFileUnique";
+import { fileManager, FileCategory } from "./fileManager";
 
 const ALLOWED_EXT = new Set([
   ".mp4",
@@ -267,6 +270,25 @@ class VideoFileManager {
       throw error;
     }
 
+    const thumbBuf = await ffmpegManager.generateThumbnail(path);
+    if (thumbBuf) {
+      const thumbnailKey = `${uniqueId}.jpg`;
+      await fileManager.write(thumbnailKey, FileCategory.Thumbnails, thumbBuf);
+      const contents = await db.query.videoUniqueContentsTable.findMany({
+        where: eq(videoUniqueContentsTable.uniqueId, uniqueId),
+        columns: { videoId: true },
+      });
+      for (const c of contents) {
+        await db
+          .update(videosTable)
+          .set({ thumbnailKey, updatedAt: new Date() })
+          .where(eq(videosTable.id, c.videoId));
+      }
+      if (contents.length > 0) {
+        this.logger.debug(`缩略图已更新: ${thumbnailKey}, 关联 ${contents.length} 个视频`);
+      }
+    }
+
     this.logger.debug(`文件已处理: ${path}, 唯一ID: ${uniqueId}, 时长: ${durationSeconds}秒`);
     return true;
   }
@@ -342,6 +364,17 @@ class VideoFileManager {
 
   cancelScanTask() {
     this.scanTask?.cancel();
+  }
+
+  async init() {
+    const dirs = await this.getDirs()
+
+    this.logger.info(`监听目录数量：${dirs.length}`);
+
+    this.initWatchers(dirs.map(dir => dir.path));
+    for (const dir of dirs) {
+      this.startScanTask(dir);
+    }
   }
 }
 

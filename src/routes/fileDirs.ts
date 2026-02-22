@@ -8,6 +8,7 @@ import {
   parseSearchQuery,
   searchQuerySchema,
 } from "../utils/pagination";
+import { videoFileManager } from "../services/videoFileManager";
 
 export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
   .get(
@@ -107,6 +108,9 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
         .returning();
 
       set.status = 201;
+
+      videoFileManager.init()
+
       return rows[0];
     },
     {
@@ -125,7 +129,7 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
         return { message: "invalid id" };
       }
 
-      if (body.path === undefined && body.enabled === undefined) {
+      if (body.enabled === undefined) {
         set.status = 400;
         return { message: "no fields to update" };
       }
@@ -133,7 +137,7 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
       const rows = await db
         .update(fileDirsTable)
         .set({
-          path: body.path ?? undefined,
+          // path: body.path ?? undefined,
           enabled: body.enabled ?? undefined,
           updatedAt: new Date(),
         })
@@ -146,6 +150,8 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
         return { message: "file dir not found" };
       }
 
+      videoFileManager.init()
+
       return item;
     },
     {
@@ -153,7 +159,7 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
         id: t.String(),
       }),
       body: t.Object({
-        path: t.Optional(t.String({ minLength: 1 })),
+        // path: t.Optional(t.String({ minLength: 1 })),
         enabled: t.Optional(t.Boolean()),
       }),
     }
@@ -177,6 +183,8 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
         set.status = 404;
         return { message: "file dir not found" };
       }
+
+      videoFileManager.init()
 
       return item;
     },

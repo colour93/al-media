@@ -85,15 +85,17 @@ const toVideoResponse = (item: any) => {
   };
 };
 
+const videoWithRelations = {
+  videoActors: { with: { actor: true } },
+  videoCreators: { with: { creator: { with: { actor: true } } } },
+  videoDistributors: { with: { distributor: true } },
+  videoTags: { with: { tag: true } },
+} as const;
+
 const getVideoWithRelations = (id: number) =>
   db.query.videosTable.findFirst({
     where: eq(videosTable.id, id),
-    with: {
-      videoActors: { with: { actor: true } },
-      videoCreators: { with: { creator: true } },
-      videoDistributors: { with: { distributor: true } },
-      videoTags: { with: { tag: true } },
-    },
+    with: videoWithRelations,
   });
 
 export const videosRoutes = new Elysia({ prefix: "/videos" })
@@ -116,8 +118,9 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
               with: {
                 video: true
               }
-            }
-          }
+            },
+            ...videoWithRelations,
+          },
         }),
         db.$count(videosTable),
       ]);
@@ -149,6 +152,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
           orderBy: (t, { desc }) => [desc(t.id)],
           limit: pageSize,
           offset,
+          with: videoWithRelations,
         }),
         db.$count(videosTable, condition),
       ]);
@@ -256,12 +260,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
 
         return tx.query.videosTable.findFirst({
           where: eq(videosTable.id, created.id),
-          with: {
-            videoActors: { with: { actor: true } },
-            videoCreators: { with: { creator: true } },
-            videoDistributors: { with: { distributor: true } },
-            videoTags: { with: { tag: true } },
-          },
+          with: videoWithRelations,
         });
       });
 
@@ -387,12 +386,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
 
         return tx.query.videosTable.findFirst({
           where: eq(videosTable.id, id),
-          with: {
-            videoActors: { with: { actor: true } },
-            videoCreators: { with: { creator: true } },
-            videoDistributors: { with: { distributor: true } },
-            videoTags: { with: { tag: true } },
-          },
+          with: videoWithRelations,
         });
       });
 
@@ -464,12 +458,66 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         set.status = 404;
         return { message: "video file not found" };
       }
-      const item = await videosService.insertVideoFromVideoFile(videoFile);
+      const autoExtract = body.autoExtract ?? true;
+      const item = await videosService.insertVideoFromVideoFile(videoFile, {
+        autoExtract,
+      });
       return item;
     },
     {
       body: t.Object({
         videoFileId: t.Integer(),
+        autoExtract: t.Optional(t.Boolean()),
+      }),
+    }
+  )
+  .post(
+    "/:id/re-extract",
+    async ({ params, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "invalid id" };
+      }
+
+      const video = await db.query.videosTable.findFirst({
+        where: eq(videosTable.id, id),
+        columns: { id: true },
+      });
+      if (!video) {
+        set.status = 404;
+        return { message: "video not found" };
+      }
+
+      const result = await videosService.reExtractVideoInfo(id);
+      if (!result) {
+        set.status = 400;
+        return { message: "video has no linked video file to extract from" };
+      }
+
+      const item = await getVideoWithRelations(id);
+      return toVideoResponse(item!);
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+      }),
+    }
+  )
+  .post(
+    "/infer-video-info",
+    async ({ body, set }) => {
+      const filename = body.filename;
+      if (!filename) {
+        set.status = 400;
+        return { message: "filename is required" };
+      }
+      const info = await videosService.inferVideoInfo(filename);
+      return info;
+    },
+    {
+      body: t.Object({
+        filename: t.String(),
       }),
     }
   )

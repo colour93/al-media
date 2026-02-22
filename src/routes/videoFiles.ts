@@ -130,14 +130,3 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
       }),
     }
   )
-  .post("/", () => ({ route: "POST /video-files", note: "create video file (stub)" }))
-  .patch("/:id", ({ params }) => ({
-    route: "PATCH /video-files/:id",
-    params,
-    note: "update video file (stub)",
-  }))
-  .delete("/:id", ({ params }) => ({
-    route: "DELETE /video-files/:id",
-    params,
-    note: "delete video file (stub)",
-  }));

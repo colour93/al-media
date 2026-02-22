@@ -17,7 +17,7 @@ export {
   videoFileUniquesTable,
   videoFileUniqueRelations,
 } from "../entities/VideoFileUnique";
-export { tagsTable, tagTypesTable } from "../entities/Tag";
+export { tagsTable, tagTypesTable, tagRelations, tagTypesRelations } from "../entities/Tag";
 export { videosTable, videoRelations } from "../entities/Video";
 export {
   videoDistributorsTable,
