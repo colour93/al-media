@@ -20,6 +20,7 @@ import { tagsService } from "./tags";
 import type { PaginatedResult } from "../utils/pagination";
 import OpenAI from "openai";
 import { createLogger } from "../utils/logger";
+import { buildSignedVideoFileUrl } from "../utils/videoFileSign";
 
 export type CreateVideoInput = {
   title: string;
@@ -297,7 +298,27 @@ class VideosService {
       where: eq(videosTable.id, id),
       with: videoWithRelations,
     });
-    return item ? toVideoResponse(item as Parameters<typeof toVideoResponse>[0]) : null;
+    if (!item) return null;
+    const shaped = toVideoResponse(item as Parameters<typeof toVideoResponse>[0]);
+    const videoFileId = await this.getVideoFileIdForVideo(id);
+    return {
+      ...shaped,
+      videoFileUrl: videoFileId ? buildSignedVideoFileUrl(videoFileId) : null,
+    };
+  }
+
+  /** 获取视频关联的 video file id（通过 video_unique_contents） */
+  async getVideoFileIdForVideo(videoId: number): Promise<number | null> {
+    const content = await db.query.videoUniqueContentsTable.findFirst({
+      where: eq(videoUniqueContentsTable.videoId, videoId),
+      columns: { uniqueId: true },
+    });
+    if (!content) return null;
+    const videoFile = await db.query.videoFilesTable.findFirst({
+      where: eq(videoFilesTable.uniqueId, content.uniqueId),
+      columns: { id: true },
+    });
+    return videoFile?.id ?? null;
   }
 
   async create(data: CreateVideoInput) {

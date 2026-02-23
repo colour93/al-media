@@ -4,6 +4,7 @@ import { extname, join, relative } from "node:path";
 import { db } from "../db";
 import { fileDirsTable } from "../entities/FileDir";
 import { and, eq } from "drizzle-orm";
+import type { VideoFile } from "../entities/VideoFile";
 import { createLogger } from "../utils/logger";
 import { getFileCount, getFileUniqueId } from "../utils/file";
 import { videoFilesTable } from "../entities/VideoFile";
@@ -340,6 +341,26 @@ class VideoFileManager {
   async getDirs(): Promise<VideoFileDir[]> {
     const dirs = await db.select().from(fileDirsTable).where(eq(fileDirsTable.enabled, true));
     return dirs.map((dir) => ({ id: dir.id, path: dir.path }));
+  }
+
+  /** 根据 videoFileId 获取视频文件的物理路径 */
+  async getVideoFilePath(videoFileId: number): Promise<string | null> {
+    const info = await this.getVideoFileInfo(videoFileId);
+    return info?.path ?? null;
+  }
+
+  /** 根据 videoFileId 获取视频文件路径和大小（用于 Range 请求） */
+  async getVideoFileInfo(videoFileId: number): Promise<{ path: string; fileSize: number } | null> {
+    const row = await db.query.videoFilesTable.findFirst({
+      where: eq(videoFilesTable.id, videoFileId),
+      columns: { fileKey: true, fileDirId: true, fileSize: true },
+      with: { fileDir: { columns: { path: true } } },
+    });
+    if (!row?.fileDir?.path) return null;
+    return {
+      path: join(row.fileDir.path, row.fileKey),
+      fileSize: Number(row.fileSize) || 0,
+    };
   }
 
   async startScanTask(dir: VideoFileDir) {
