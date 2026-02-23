@@ -1,6 +1,7 @@
-import { eq, ilike, or } from "drizzle-orm";
+import { eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import { videoFilesTable } from "../entities/VideoFile";
+import { fileDirsTable } from "../entities/FileDir";
 import type { PaginatedResult } from "../utils/pagination";
 
 const videoFileWithRelations = {
@@ -37,10 +38,19 @@ class VideoFilesService {
   }
 
   async searchPaginated(keyword: string, page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
-    const condition = or(
+    const dirsWithPath = await db
+      .select({ id: fileDirsTable.id })
+      .from(fileDirsTable)
+      .where(ilike(fileDirsTable.path, `%${keyword}%`));
+    const dirIds = dirsWithPath.map((d) => d.id);
+    const conditions = [
       ilike(videoFilesTable.fileKey, `%${keyword}%`),
-      ilike(videoFilesTable.uniqueId, `%${keyword}%`)
-    );
+      ilike(videoFilesTable.uniqueId, `%${keyword}%`),
+    ];
+    if (dirIds.length > 0) {
+      conditions.push(inArray(videoFilesTable.fileDirId, dirIds));
+    }
+    const condition = or(...conditions);
     const [items, total] = await Promise.all([
       db.query.videoFilesTable.findMany({
         where: condition,

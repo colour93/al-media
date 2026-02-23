@@ -41,11 +41,58 @@ export type UpdateVideoInput = {
 };
 
 const videoWithRelations = {
-  videoActors: { with: { actor: true } },
-  videoCreators: { with: { creator: { with: { actor: true } } } },
+  videoActors: {
+    with: {
+      actor: {
+        with: { actorTags: { with: { tag: true } } },
+      },
+    },
+  },
+  videoCreators: {
+    with: {
+      creator: {
+        with: {
+          actor: { with: { actorTags: { with: { tag: true } } } },
+          creatorTags: { with: { tag: true } },
+        },
+      },
+    },
+  },
   videoDistributors: { with: { distributor: true } },
   videoTags: { with: { tag: true } },
 } as const;
+
+function collectTagsFromActor(actor: { actorTags?: Array<{ tag: unknown }> } | null): unknown[] {
+  if (!actor?.actorTags) return [];
+  return actor.actorTags.map((at) => at.tag).filter((t) => t != null);
+}
+
+function collectTagsFromCreator(creator: {
+  creatorTags?: Array<{ tag: unknown }>;
+  actor?: { actorTags?: Array<{ tag: unknown }> } | null;
+} | null): unknown[] {
+  if (!creator) return [];
+  const fromCreator = (creator.creatorTags ?? []).map((ct) => ct.tag).filter((t) => t != null);
+  const fromActor = collectTagsFromActor(creator.actor ?? null);
+  return [...fromCreator, ...fromActor];
+}
+
+function mergeTagsDedupeById(
+  videoTags: unknown[],
+  actorTags: unknown[],
+  creatorTags: unknown[]
+): unknown[] {
+  const seen = new Set<number>();
+  const result: unknown[] = [];
+  for (const tag of [...videoTags, ...actorTags, ...creatorTags]) {
+    const t = tag as { id?: number };
+    if (t?.id != null && !seen.has(t.id)) {
+      seen.add(t.id);
+      result.push(tag);
+    }
+  }
+  return result;
+}
 
 function toVideoResponse(item: {
   videoActors: Array<{ actor: unknown }>;
@@ -55,12 +102,20 @@ function toVideoResponse(item: {
 } & Record<string, unknown>) {
   if (!item) return null;
   const { videoActors, videoCreators, videoDistributors, videoTags, ...video } = item;
+  const directTags = videoTags.map((it) => it.tag).filter((tag) => tag != null);
+  const actorTags = videoActors.flatMap((va) =>
+    collectTagsFromActor(va.actor as { actorTags?: Array<{ tag: unknown }> } | null)
+  );
+  const creatorTags = videoCreators.flatMap((vc) =>
+    collectTagsFromCreator(vc.creator as Parameters<typeof collectTagsFromCreator>[0])
+  );
+  const tags = mergeTagsDedupeById(directTags, actorTags, creatorTags);
   return {
     ...video,
     actors: videoActors.map((it) => it.actor).filter((actor) => actor != null),
     creators: videoCreators.map((it) => it.creator).filter((creator) => creator != null),
     distributors: videoDistributors.map((it) => it.distributor).filter((distributor) => distributor != null),
-    tags: videoTags.map((it) => it.tag).filter((tag) => tag != null),
+    tags,
   };
 }
 
