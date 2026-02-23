@@ -1,172 +1,32 @@
 import { Elysia, t } from "elysia";
-import { eq, ilike, inArray } from "drizzle-orm";
-import { db } from "../db";
-import { actorsTable } from "../entities/Actor";
-import { creatorsTable } from "../entities/Creator";
-import { distributorsTable } from "../entities/Distributor";
-import { tagsTable } from "../entities/Tag";
-import { videosTable } from "../entities/Video";
-import { videoActorsTable } from "../entities/VideoActor";
-import { videoCreatorsTable } from "../entities/VideoCreator";
-import { videoDistributorsTable } from "../entities/VideoDistributor";
-import { videoTagsTable } from "../entities/VideoTag";
 import { fileManager, FileCategory } from "../services/fileManager";
+import { videoFilesService } from "../services/videoFiles";
+import { videosService } from "../services/videos";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
 } from "../utils/pagination";
-import { videoFilesTable } from "../entities/VideoFile";
-import { videosService } from "../services/videos";
-
-const normalizeIds = (ids: number[]) => [...new Set(ids)];
-
-const hasAllActors = async (ids: number[]) => {
-  if (ids.length === 0) {
-    return true;
-  }
-  const rows = await db.query.actorsTable.findMany({
-    where: inArray(actorsTable.id, ids),
-    columns: { id: true },
-  });
-  return rows.length === ids.length;
-};
-
-const hasAllCreators = async (ids: number[]) => {
-  if (ids.length === 0) {
-    return true;
-  }
-  const rows = await db.query.creatorsTable.findMany({
-    where: inArray(creatorsTable.id, ids),
-    columns: { id: true },
-  });
-  return rows.length === ids.length;
-};
-
-const hasAllDistributors = async (ids: number[]) => {
-  if (ids.length === 0) {
-    return true;
-  }
-  const rows = await db.query.distributorsTable.findMany({
-    where: inArray(distributorsTable.id, ids),
-    columns: { id: true },
-  });
-  return rows.length === ids.length;
-};
-
-const hasAllTags = async (ids: number[]) => {
-  if (ids.length === 0) {
-    return true;
-  }
-  const rows = await db.query.tagsTable.findMany({
-    where: inArray(tagsTable.id, ids),
-    columns: { id: true },
-  });
-  return rows.length === ids.length;
-};
-
-const toVideoResponse = (item: any) => {
-  if (!item) {
-    return null;
-  }
-
-  const { videoActors, videoCreators, videoDistributors, videoTags, ...video } = item;
-  return {
-    ...video,
-    actors: videoActors.map((it: any) => it.actor).filter((actor: any) => actor != null),
-    creators: videoCreators
-      .map((it: any) => it.creator)
-      .filter((creator: any) => creator != null),
-    distributors: videoDistributors
-      .map((it: any) => it.distributor)
-      .filter((distributor: any) => distributor != null),
-    tags: videoTags.map((it: any) => it.tag).filter((tag: any) => tag != null),
-  };
-};
-
-const videoWithRelations = {
-  videoActors: { with: { actor: true } },
-  videoCreators: { with: { creator: { with: { actor: true } } } },
-  videoDistributors: { with: { distributor: true } },
-  videoTags: { with: { tag: true } },
-} as const;
-
-const getVideoWithRelations = (id: number) =>
-  db.query.videosTable.findFirst({
-    where: eq(videosTable.id, id),
-    with: videoWithRelations,
-  });
 
 export const videosRoutes = new Elysia({ prefix: "/videos" })
   .get(
     "/",
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
-      if (!pagination) {
-        return { message: "invalid pagination" };
-      }
-
-      const { page, pageSize, offset } = pagination;
-      const [items, total] = await Promise.all([
-        db.query.videosTable.findMany({
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-          with: {
-            videoUniqueContents: {
-              with: {
-                video: true
-              }
-            },
-            ...videoWithRelations,
-          },
-        }),
-        db.$count(videosTable),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!pagination) return { message: "分页参数无效" };
+      return videosService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
     },
-    {
-      query: paginationQuerySchema,
-    }
+    { query: paginationQuerySchema }
   )
   .get(
     "/search",
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
-      if (!parsed) {
-        return { message: "invalid search" };
-      }
-
-      const { page, pageSize, offset, keyword } = parsed;
-      const condition = ilike(videosTable.title, `%${keyword}%`);
-      const [items, total] = await Promise.all([
-        db.query.videosTable.findMany({
-          where: condition,
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-          with: videoWithRelations,
-        }),
-        db.$count(videosTable, condition),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!parsed) return { message: "搜索参数无效" };
+      return videosService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
     },
-    {
-      query: searchQuerySchema,
-    }
+    { query: searchQuerySchema }
   )
   .get(
     "/:id",
@@ -174,22 +34,16 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const item = await getVideoWithRelations(id);
+      const item = await videosService.findById(id);
       if (!item) {
         set.status = 404;
-        return { message: "video not found" };
+        return { message: "视频不存在" };
       }
-
-      return toVideoResponse(item);
+      return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/",
@@ -197,80 +51,26 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const key = body.thumbnailKey ?? null;
       if (key != null && key !== "" && !fileManager.exists(key, FileCategory.Thumbnails)) {
         set.status = 400;
-        return { message: "thumbnailKey file not found" };
+        return { message: "缩略图文件不存在" };
       }
-
-      const actorIds = normalizeIds(body.actors ?? []);
-      const creatorIds = normalizeIds(body.creators ?? []);
-      const distributorIds = normalizeIds(body.distributors ?? []);
-      const tagIds = normalizeIds(body.tags ?? []);
-
-      const [allActors, allCreators, allDistributors, allTags] = await Promise.all([
-        hasAllActors(actorIds),
-        hasAllCreators(creatorIds),
-        hasAllDistributors(distributorIds),
-        hasAllTags(tagIds),
-      ]);
-      if (!allActors) {
-        set.status = 400;
-        return { message: "actorId not found" };
-      }
-      if (!allCreators) {
-        set.status = 400;
-        return { message: "creatorId not found" };
-      }
-      if (!allDistributors) {
-        set.status = 400;
-        return { message: "distributorId not found" };
-      }
-      if (!allTags) {
-        set.status = 400;
-        return { message: "tagId not found" };
-      }
-
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .insert(videosTable)
-          .values({
-            title: body.title,
-            thumbnailKey: key,
-          })
-          .returning();
-        const created = rows[0];
-        if (!created) {
-          return null;
-        }
-
-        if (actorIds.length > 0) {
-          await tx.insert(videoActorsTable).values(actorIds.map((actorId) => ({ videoId: created.id, actorId })));
-        }
-        if (creatorIds.length > 0) {
-          await tx
-            .insert(videoCreatorsTable)
-            .values(creatorIds.map((creatorId) => ({ videoId: created.id, creatorId })));
-        }
-        if (distributorIds.length > 0) {
-          await tx
-            .insert(videoDistributorsTable)
-            .values(distributorIds.map((distributorId) => ({ videoId: created.id, distributorId })));
-        }
-        if (tagIds.length > 0) {
-          await tx.insert(videoTagsTable).values(tagIds.map((tagId) => ({ videoId: created.id, tagId })));
-        }
-
-        return tx.query.videosTable.findFirst({
-          where: eq(videosTable.id, created.id),
-          with: videoWithRelations,
-        });
+      const result = await videosService.create({
+        title: body.title,
+        thumbnailKey: key,
+        actors: body.actors,
+        creators: body.creators,
+        distributors: body.distributors,
+        tags: body.tags,
       });
-
-      if (!item) {
-        set.status = 500;
-        return { message: "failed to create video" };
+      if ("error" in result) {
+        set.status = 400;
+        return { message: result.error };
       }
-
+      if (!result.item) {
+        set.status = 500;
+        return { message: "创建视频失败" };
+      }
       set.status = 201;
-      return toVideoResponse(item);
+      return result.item;
     },
     {
       body: t.Object({
@@ -289,9 +89,8 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       if (
         !body.title &&
         body.thumbnailKey === undefined &&
@@ -301,110 +100,32 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         body.tags === undefined
       ) {
         set.status = 400;
-        return { message: "no fields to update" };
+        return { message: "没有可更新的字段" };
       }
-
       if (
         body.thumbnailKey != null &&
         body.thumbnailKey !== "" &&
         !fileManager.exists(body.thumbnailKey, FileCategory.Thumbnails)
       ) {
         set.status = 400;
-        return { message: "thumbnailKey file not found" };
+        return { message: "缩略图文件不存在" };
       }
-
-      const actorIds = body.actors === undefined ? undefined : normalizeIds(body.actors);
-      const creatorIds = body.creators === undefined ? undefined : normalizeIds(body.creators);
-      const distributorIds = body.distributors === undefined ? undefined : normalizeIds(body.distributors);
-      const tagIds = body.tags === undefined ? undefined : normalizeIds(body.tags);
-
-      const checks = await Promise.all([
-        actorIds === undefined ? true : hasAllActors(actorIds),
-        creatorIds === undefined ? true : hasAllCreators(creatorIds),
-        distributorIds === undefined ? true : hasAllDistributors(distributorIds),
-        tagIds === undefined ? true : hasAllTags(tagIds),
-      ]);
-      if (!checks[0]) {
-        set.status = 400;
-        return { message: "actorId not found" };
-      }
-      if (!checks[1]) {
-        set.status = 400;
-        return { message: "creatorId not found" };
-      }
-      if (!checks[2]) {
-        set.status = 400;
-        return { message: "distributorId not found" };
-      }
-      if (!checks[3]) {
-        set.status = 400;
-        return { message: "tagId not found" };
-      }
-
-      let videoNotFound = false;
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .update(videosTable)
-          .set({
-            title: body.title ?? undefined,
-            thumbnailKey: body.thumbnailKey ?? undefined,
-            updatedAt: new Date(),
-          })
-          .where(eq(videosTable.id, id))
-          .returning();
-        if (!rows[0]) {
-          videoNotFound = true;
-          return null;
-        }
-
-        if (actorIds !== undefined) {
-          await tx.delete(videoActorsTable).where(eq(videoActorsTable.videoId, id));
-          if (actorIds.length > 0) {
-            await tx.insert(videoActorsTable).values(actorIds.map((actorId) => ({ videoId: id, actorId })));
-          }
-        }
-        if (creatorIds !== undefined) {
-          await tx.delete(videoCreatorsTable).where(eq(videoCreatorsTable.videoId, id));
-          if (creatorIds.length > 0) {
-            await tx.insert(videoCreatorsTable).values(creatorIds.map((creatorId) => ({ videoId: id, creatorId })));
-          }
-        }
-        if (distributorIds !== undefined) {
-          await tx.delete(videoDistributorsTable).where(eq(videoDistributorsTable.videoId, id));
-          if (distributorIds.length > 0) {
-            await tx
-              .insert(videoDistributorsTable)
-              .values(distributorIds.map((distributorId) => ({ videoId: id, distributorId })));
-          }
-        }
-        if (tagIds !== undefined) {
-          await tx.delete(videoTagsTable).where(eq(videoTagsTable.videoId, id));
-          if (tagIds.length > 0) {
-            await tx.insert(videoTagsTable).values(tagIds.map((tagId) => ({ videoId: id, tagId })));
-          }
-        }
-
-        return tx.query.videosTable.findFirst({
-          where: eq(videosTable.id, id),
-          with: videoWithRelations,
-        });
+      const result = await videosService.update(id, {
+        title: body.title ?? undefined,
+        thumbnailKey: body.thumbnailKey ?? undefined,
+        actors: body.actors,
+        creators: body.creators,
+        distributors: body.distributors,
+        tags: body.tags,
       });
-
-      if (!item) {
-        if (videoNotFound) {
-          set.status = 404;
-          return { message: "video not found" };
-        }
-        set.status = 500;
-        return { message: "failed to update video" };
+      if ("error" in result) {
+        set.status = result.error === "视频不存在" ? 404 : 400;
+        return { message: result.error };
       }
-
-      return toVideoResponse(item);
+      return result.item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
+      params: t.Object({ id: t.String() }),
       body: t.Object({
         title: t.Optional(t.String({ minLength: 1 })),
         thumbnailKey: t.Optional(t.String()),
@@ -421,27 +142,16 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const rows = await db
-        .delete(videosTable)
-        .where(eq(videosTable.id, id))
-        .returning();
-
-      const item = rows[0];
+      const item = await videosService.delete(id);
       if (!item) {
         set.status = 404;
-        return { message: "video not found" };
+        return { message: "视频不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/insert-from-video-file",
@@ -449,19 +159,19 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const videoFileId = Number(body.videoFileId);
       if (!Number.isInteger(videoFileId)) {
         set.status = 400;
-        return { message: "invalid video file id" };
+        return { message: "视频文件 ID 无效" };
       }
-      const videoFile = await db.query.videoFilesTable.findFirst({
-        where: eq(videoFilesTable.id, videoFileId),
-      });
+      const videoFile = await videoFilesService.findByIdRaw(videoFileId);
       if (!videoFile) {
         set.status = 404;
-        return { message: "video file not found" };
+        return { message: "视频文件不存在" };
       }
       const autoExtract = body.autoExtract ?? true;
-      const item = await videosService.insertVideoFromVideoFile(videoFile, {
-        autoExtract,
-      });
+      const item = await videosService.insertVideoFromVideoFile(videoFile, { autoExtract });
+      if (!item) {
+        set.status = 500;
+        return { message: "插入视频失败" };
+      }
       return item;
     },
     {
@@ -477,32 +187,22 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const video = await db.query.videosTable.findFirst({
-        where: eq(videosTable.id, id),
-        columns: { id: true },
-      });
+      const video = await videosService.findById(id);
       if (!video) {
         set.status = 404;
-        return { message: "video not found" };
+        return { message: "视频不存在" };
       }
-
       const result = await videosService.reExtractVideoInfo(id);
       if (!result) {
         set.status = 400;
-        return { message: "video has no linked video file to extract from" };
+        return { message: "视频没有关联的视频文件可供提取" };
       }
-
-      const item = await getVideoWithRelations(id);
-      return toVideoResponse(item!);
+      const item = await videosService.findById(id);
+      return item!;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/infer-video-info",
@@ -510,7 +210,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const filename = body.filename;
       if (!filename) {
         set.status = 400;
-        return { message: "filename is required" };
+        return { message: "文件名必填" };
       }
       const info = await videosService.inferVideoInfo(filename);
       return info;
@@ -520,4 +220,4 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         filename: t.String(),
       }),
     }
-  )
+  );

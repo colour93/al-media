@@ -1,7 +1,5 @@
 import { Elysia, t } from "elysia";
-import { eq, ilike } from "drizzle-orm";
-import { db } from "../db";
-import { tagTypesTable } from "../entities/Tag";
+import { tagTypesService } from "../services/tagTypes";
 import {
   paginationQuerySchema,
   parsePagination,
@@ -14,61 +12,19 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
     "/",
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
-      if (!pagination) {
-        return { message: "invalid pagination" };
-      }
-
-      const { page, pageSize, offset } = pagination;
-      const [items, total] = await Promise.all([
-        db.query.tagTypesTable.findMany({
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(tagTypesTable),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!pagination) return { message: "分页参数无效" };
+      return tagTypesService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
     },
-    {
-      query: paginationQuerySchema,
-    }
+    { query: paginationQuerySchema }
   )
   .get(
     "/search",
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
-      if (!parsed) {
-        return { message: "invalid search" };
-      }
-
-      const { page, pageSize, offset, keyword } = parsed;
-      const condition = ilike(tagTypesTable.name, `%${keyword}%`);
-      const [items, total] = await Promise.all([
-        db.query.tagTypesTable.findMany({
-          where: condition,
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(tagTypesTable, condition),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!parsed) return { message: "搜索参数无效" };
+      return tagTypesService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
     },
-    {
-      query: searchQuerySchema,
-    }
+    { query: searchQuerySchema }
   )
   .get(
     "/:id",
@@ -76,38 +32,27 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const item = await db.query.tagTypesTable.findFirst({
-        where: eq(tagTypesTable.id, id),
-      });
+      const item = await tagTypesService.findById(id);
       if (!item) {
         set.status = 404;
-        return { message: "tag type not found" };
+        return { message: "标签类型不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/",
     async ({ body, set }) => {
-      const rows = await db
-        .insert(tagTypesTable)
-        .values({
-          name: body.name,
-          icon: body.icon ?? null,
-        })
-        .returning();
-
+      const item = await tagTypesService.create({ name: body.name, icon: body.icon ?? null });
+      if (!item) {
+        set.status = 500;
+        return { message: "创建标签类型失败" };
+      }
       set.status = 201;
-      return rows[0];
+      return item;
     },
     {
       body: t.Object({
@@ -122,36 +67,24 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       if (!body.name && !body.icon) {
         set.status = 400;
-        return { message: "no fields to update" };
+        return { message: "没有可更新的字段" };
       }
-
-      const rows = await db
-        .update(tagTypesTable)
-        .set({
-          name: body.name ?? undefined,
-          icon: body.icon ?? undefined,
-          updatedAt: new Date(),
-        })
-        .where(eq(tagTypesTable.id, id))
-        .returning();
-
-      const item = rows[0];
+      const item = await tagTypesService.update(id, {
+        name: body.name ?? undefined,
+        icon: body.icon ?? undefined,
+      });
       if (!item) {
         set.status = 404;
-        return { message: "tag type not found" };
+        return { message: "标签类型不存在" };
       }
-
       return item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
+      params: t.Object({ id: t.String() }),
       body: t.Object({
         name: t.Optional(t.String({ minLength: 1 })),
         icon: t.Optional(t.String()),
@@ -164,25 +97,14 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const rows = await db
-        .delete(tagTypesTable)
-        .where(eq(tagTypesTable.id, id))
-        .returning();
-
-      const item = rows[0];
+      const item = await tagTypesService.delete(id);
       if (!item) {
         set.status = 404;
-        return { message: "tag type not found" };
+        return { message: "标签类型不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   );

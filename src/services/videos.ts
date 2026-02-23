@@ -8,25 +8,78 @@ import { videoFilesTable } from "../entities/VideoFile";
 import { videoActorsTable } from "../entities/VideoActor";
 import { videoCreatorsTable } from "../entities/VideoCreator";
 import { videoDistributorsTable } from "../entities/VideoDistributor";
+import { videoTagsTable } from "../entities/VideoTag";
 import { actorsTable } from "../entities/Actor";
 import { creatorsTable } from "../entities/Creator";
 import { distributorsTable } from "../entities/Distributor";
 import { fileManager, FileCategory } from "./fileManager";
+import { actorsService } from "./actors";
+import { creatorsService } from "./creators";
+import { distributorsService } from "./distributors";
+import { tagsService } from "./tags";
+import type { PaginatedResult } from "../utils/pagination";
 import OpenAI from "openai";
+import { createLogger } from "../utils/logger";
+
+export type CreateVideoInput = {
+  title: string;
+  thumbnailKey?: string | null;
+  actors?: number[];
+  creators?: number[];
+  distributors?: number[];
+  tags?: number[];
+};
+
+export type UpdateVideoInput = {
+  title?: string;
+  thumbnailKey?: string | null;
+  actors?: number[];
+  creators?: number[];
+  distributors?: number[];
+  tags?: number[];
+};
+
+const videoWithRelations = {
+  videoActors: { with: { actor: true } },
+  videoCreators: { with: { creator: { with: { actor: true } } } },
+  videoDistributors: { with: { distributor: true } },
+  videoTags: { with: { tag: true } },
+} as const;
+
+function toVideoResponse(item: {
+  videoActors: Array<{ actor: unknown }>;
+  videoCreators: Array<{ creator: unknown }>;
+  videoDistributors: Array<{ distributor: unknown }>;
+  videoTags: Array<{ tag: unknown }>;
+} & Record<string, unknown>) {
+  if (!item) return null;
+  const { videoActors, videoCreators, videoDistributors, videoTags, ...video } = item;
+  return {
+    ...video,
+    actors: videoActors.map((it) => it.actor).filter((actor) => actor != null),
+    creators: videoCreators.map((it) => it.creator).filter((creator) => creator != null),
+    distributors: videoDistributors.map((it) => it.distributor).filter((distributor) => distributor != null),
+    tags: videoTags.map((it) => it.tag).filter((tag) => tag != null),
+  };
+}
+
+function normalizeIds(ids: number[]) {
+  return [...new Set(ids)];
+}
 
 export type InferVideoInfoResult = {
   title: string;
   creator?: string | null;
   creatorType?: "person" | "group";
   distributors?: string[];
-  participants?: string[];
+  actors?: string[];
 };
 
 const extractVideoInfoTool = {
   type: "function" as const,
   function: {
     name: "extract_video_info",
-    description: "从视频文件名中提取 title、creator、creatorType、distributors、participants 等信息。无法提取的字段留空，禁止随意填写",
+    description: "从视频文件名中提取 title、creator、creatorType、distributors、actors 等信息。无法提取的字段留空，禁止随意填写",
     strict: true,
     parameters: {
       type: "object",
@@ -43,7 +96,7 @@ const extractVideoInfoTool = {
           items: { type: "string" },
           description: "发行商列表",
         },
-        participants: {
+        actors: {
           type: "array",
           items: { type: "string" },
           description: "参与者/演员列表",
@@ -58,57 +111,348 @@ const extractVideoInfoTool = {
 class VideosService {
   private openai: OpenAI;
 
+  private logger = createLogger("videos-service");
+
   constructor() {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: process.env.OPENAI_BASE_URL });
   }
 
-  private async getKnownEntities() {
-    const [creators, distributors, actors] = await Promise.all([
-      db.query.creatorsTable.findMany({
-        columns: { name: true, type: true },
-      }),
-      db.query.distributorsTable.findMany({
-        columns: { name: true },
-      }),
-      db.query.actorsTable.findMany({
-        columns: { name: true },
-      }),
-    ]);
+  private toLikePattern(value: string) {
+    return `%${value.trim()}%`;
+  }
 
-    const creatorGroups = creators.filter((c) => c.type === "group").map((c) => c.name);
-    const creatorPersons = creators.filter((c) => c.type === "person").map((c) => c.name);
-    const distributorNames = distributors.map((d) => d.name);
-    const actorNames = actors.map((a) => a.name);
+  private normalizeName(value: string) {
+    return value.trim().replace(/\s+/g, " ");
+  }
+
+  private dedupeNames(values: string[]) {
+    const deduped = new Map<string, string>();
+    for (const value of values) {
+      const normalized = this.normalizeName(value);
+      if (!normalized) continue;
+      const key = normalized.toLowerCase();
+      if (!deduped.has(key)) {
+        deduped.set(key, normalized);
+      }
+    }
+    return Array.from(deduped.values());
+  }
+
+  private extractCandidateNames(filename: string) {
+    const name = filename.replace(/\.[^.]+$/, "");
+    const candidates: string[] = [];
+
+    for (const match of name.matchAll(/\[([^[\]]+)\]/g)) {
+      const raw = match[1] ?? "";
+      const splitParts = raw.split(/[,&/|+，、]/g);
+      for (const part of splitParts) {
+        const cleaned = this.normalizeName(part);
+        if (cleaned.length >= 2) {
+          candidates.push(cleaned);
+        }
+      }
+    }
+
+    for (const handle of name.match(/@[\w.-]+/g) ?? []) {
+      const cleaned = this.normalizeName(handle);
+      if (cleaned.length >= 2) {
+        candidates.push(cleaned);
+      }
+    }
+
+    return this.dedupeNames(candidates);
+  }
+
+  private async findMatchedHints(filename: string) {
+    const candidates = this.extractCandidateNames(filename);
+    if (!candidates.length) {
+      return {
+        creatorGroups: [] as string[],
+        creatorPersons: [] as string[],
+        distributors: [] as string[],
+        actors: [] as string[],
+      };
+    }
+
+    const creatorGroups = new Set<string>();
+    const creatorPersons = new Set<string>();
+    const distributors = new Set<string>();
+    const actors = new Set<string>();
+
+    for (const candidate of candidates) {
+      const pattern = this.toLikePattern(candidate);
+      const [creator, distributor, actor] = await Promise.all([
+        db.query.creatorsTable.findFirst({
+          where: ilike(creatorsTable.name, pattern),
+          columns: { name: true, type: true },
+        }),
+        db.query.distributorsTable.findFirst({
+          where: ilike(distributorsTable.name, pattern),
+          columns: { name: true },
+        }),
+        db.query.actorsTable.findFirst({
+          where: ilike(actorsTable.name, pattern),
+          columns: { name: true },
+        }),
+      ]);
+
+      if (creator?.name) {
+        if (creator.type === "group") {
+          creatorGroups.add(creator.name);
+        } else {
+          creatorPersons.add(creator.name);
+        }
+      }
+      if (distributor?.name) {
+        distributors.add(distributor.name);
+      }
+      if (actor?.name) {
+        actors.add(actor.name);
+      }
+    }
 
     return {
-      creatorGroups,
-      creatorPersons,
-      distributorNames,
-      actorNames,
+      creatorGroups: Array.from(creatorGroups),
+      creatorPersons: Array.from(creatorPersons),
+      distributors: Array.from(distributors),
+      actors: Array.from(actors),
     };
   }
 
+  private async resolveInfoWithDatabase(info: InferVideoInfoResult): Promise<InferVideoInfoResult> {
+    const creatorInput = info.creator ? this.normalizeName(info.creator) : null;
+    let creator: string | null = creatorInput;
+    let creatorType = info.creatorType;
+
+    if (creatorInput) {
+      const foundCreator = await db.query.creatorsTable.findFirst({
+        where: ilike(creatorsTable.name, this.toLikePattern(creatorInput)),
+        columns: { name: true, type: true },
+      });
+      if (foundCreator) {
+        creator = foundCreator.name;
+        creatorType = foundCreator.type;
+      }
+    }
+
+    const resolvedDistributors: string[] = [];
+    for (const name of this.dedupeNames(info.distributors ?? [])) {
+      const found = await db.query.distributorsTable.findFirst({
+        where: ilike(distributorsTable.name, this.toLikePattern(name)),
+        columns: { name: true },
+      });
+      resolvedDistributors.push(found?.name ?? name);
+    }
+
+    const resolvedactors: string[] = [];
+    for (const name of this.dedupeNames(info.actors ?? [])) {
+      const found = await db.query.actorsTable.findFirst({
+        where: ilike(actorsTable.name, this.toLikePattern(name)),
+        columns: { name: true },
+      });
+      resolvedactors.push(found?.name ?? name);
+    }
+
+    return {
+      title: info.title,
+      creator,
+      creatorType,
+      distributors: this.dedupeNames(resolvedDistributors),
+      actors: this.dedupeNames(resolvedactors),
+    };
+  }
+
+  async findManyPaginated(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+    const [items, total] = await Promise.all([
+      db.query.videosTable.findMany({
+        orderBy: (t, { desc }) => [desc(t.id)],
+        limit: pageSize,
+        offset,
+        with: videoWithRelations,
+      }),
+      db.$count(videosTable),
+    ]);
+    const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
+    return { page, pageSize, total: total ?? 0, items: shaped };
+  }
+
+  async searchPaginated(keyword: string, page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+    const condition = ilike(videosTable.title, `%${keyword}%`);
+    const [items, total] = await Promise.all([
+      db.query.videosTable.findMany({
+        where: condition,
+        orderBy: (t, { desc }) => [desc(t.id)],
+        limit: pageSize,
+        offset,
+        with: videoWithRelations,
+      }),
+      db.$count(videosTable, condition),
+    ]);
+    const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
+    return { page, pageSize, total: total ?? 0, items: shaped };
+  }
+
+  async findById(id: number) {
+    const item = await db.query.videosTable.findFirst({
+      where: eq(videosTable.id, id),
+      with: videoWithRelations,
+    });
+    return item ? toVideoResponse(item as Parameters<typeof toVideoResponse>[0]) : null;
+  }
+
+  async create(data: CreateVideoInput) {
+    const actorIds = normalizeIds(data.actors ?? []);
+    const creatorIds = normalizeIds(data.creators ?? []);
+    const distributorIds = normalizeIds(data.distributors ?? []);
+    const tagIds = normalizeIds(data.tags ?? []);
+
+    const [allActors, allCreators, allDistributors, allTags] = await Promise.all([
+      actorsService.idsExist(actorIds),
+      creatorsService.idsExist(creatorIds),
+      distributorsService.idsExist(distributorIds),
+      tagsService.idsExist(tagIds),
+    ]);
+    if (!allActors) return { error: "演员 ID 不存在" as const };
+    if (!allCreators) return { error: "创作者 ID 不存在" as const };
+    if (!allDistributors) return { error: "发行商 ID 不存在" as const };
+    if (!allTags) return { error: "标签 ID 不存在" as const };
+
+    const item = await db.transaction(async (tx) => {
+      const rows = await tx
+        .insert(videosTable)
+        .values({ title: data.title, thumbnailKey: data.thumbnailKey ?? null })
+        .returning();
+      const created = rows[0];
+      if (!created) return null;
+
+      if (actorIds.length > 0) {
+        await tx.insert(videoActorsTable).values(actorIds.map((actorId) => ({ videoId: created.id, actorId })));
+      }
+      if (creatorIds.length > 0) {
+        await tx.insert(videoCreatorsTable).values(creatorIds.map((creatorId) => ({ videoId: created.id, creatorId })));
+      }
+      if (distributorIds.length > 0) {
+        await tx.insert(videoDistributorsTable).values(distributorIds.map((d) => ({ videoId: created.id, distributorId: d })));
+      }
+      if (tagIds.length > 0) {
+        await tx.insert(videoTagsTable).values(tagIds.map((tagId) => ({ videoId: created.id, tagId })));
+      }
+
+      return tx.query.videosTable.findFirst({
+        where: eq(videosTable.id, created.id),
+        with: videoWithRelations,
+      });
+    });
+
+    if (!item) return { error: "创建视频失败" as const };
+    return { item: toVideoResponse(item as Parameters<typeof toVideoResponse>[0]) };
+  }
+
+  async update(id: number, data: UpdateVideoInput) {
+    const actorIds = data.actors === undefined ? undefined : normalizeIds(data.actors);
+    const creatorIds = data.creators === undefined ? undefined : normalizeIds(data.creators);
+    const distributorIds = data.distributors === undefined ? undefined : normalizeIds(data.distributors);
+    const tagIds = data.tags === undefined ? undefined : normalizeIds(data.tags);
+
+    const checks = await Promise.all([
+      actorIds === undefined ? true : actorsService.idsExist(actorIds),
+      creatorIds === undefined ? true : creatorsService.idsExist(creatorIds),
+      distributorIds === undefined ? true : distributorsService.idsExist(distributorIds),
+      tagIds === undefined ? true : tagsService.idsExist(tagIds),
+    ]);
+    if (!checks[0]) return { error: "演员 ID 不存在" as const };
+    if (!checks[1]) return { error: "创作者 ID 不存在" as const };
+    if (!checks[2]) return { error: "发行商 ID 不存在" as const };
+    if (!checks[3]) return { error: "标签 ID 不存在" as const };
+
+    let videoNotFound = false;
+    const item = await db.transaction(async (tx) => {
+      const rows = await tx
+        .update(videosTable)
+        .set({
+          title: data.title ?? undefined,
+          thumbnailKey: data.thumbnailKey ?? undefined,
+          updatedAt: new Date(),
+        })
+        .where(eq(videosTable.id, id))
+        .returning();
+      if (!rows[0]) {
+        videoNotFound = true;
+        return null;
+      }
+
+      if (actorIds !== undefined) {
+        await tx.delete(videoActorsTable).where(eq(videoActorsTable.videoId, id));
+        if (actorIds.length > 0) {
+          await tx.insert(videoActorsTable).values(actorIds.map((actorId) => ({ videoId: id, actorId })));
+        }
+      }
+      if (creatorIds !== undefined) {
+        await tx.delete(videoCreatorsTable).where(eq(videoCreatorsTable.videoId, id));
+        if (creatorIds.length > 0) {
+          await tx.insert(videoCreatorsTable).values(creatorIds.map((creatorId) => ({ videoId: id, creatorId })));
+        }
+      }
+      if (distributorIds !== undefined) {
+        await tx.delete(videoDistributorsTable).where(eq(videoDistributorsTable.videoId, id));
+        if (distributorIds.length > 0) {
+          await tx.insert(videoDistributorsTable).values(distributorIds.map((d) => ({ videoId: id, distributorId: d })));
+        }
+      }
+      if (tagIds !== undefined) {
+        await tx.delete(videoTagsTable).where(eq(videoTagsTable.videoId, id));
+        if (tagIds.length > 0) {
+          await tx.insert(videoTagsTable).values(tagIds.map((tagId) => ({ videoId: id, tagId })));
+        }
+      }
+
+      return tx.query.videosTable.findFirst({
+        where: eq(videosTable.id, id),
+        with: videoWithRelations,
+      });
+    });
+
+    if (!item) {
+      if (videoNotFound) return { error: "视频不存在" as const };
+      return { error: "更新视频失败" as const };
+    }
+    return { item: toVideoResponse(item as Parameters<typeof toVideoResponse>[0]) };
+  }
+
+  async delete(id: number) {
+    const rows = await db.delete(videosTable).where(eq(videosTable.id, id)).returning();
+    return rows[0] ?? null;
+  }
+
   async inferVideoInfo(filename: string): Promise<InferVideoInfoResult> {
-    const { creatorGroups, creatorPersons, distributorNames, actorNames } =
-      await this.getKnownEntities();
+    const hints = await this.findMatchedHints(filename);
+    const hintLines: string[] = [];
+    if (hints.creatorGroups.length) {
+      hintLines.push(`- 候选团体创作者: ${hints.creatorGroups.join(", ")}`);
+    }
+    if (hints.creatorPersons.length) {
+      hintLines.push(`- 候选个人创作者: ${hints.creatorPersons.join(", ")}`);
+    }
+    if (hints.distributors.length) {
+      hintLines.push(`- 候选发行商: ${hints.distributors.join(", ")}`);
+    }
+    if (hints.actors.length) {
+      hintLines.push(`- 候选演员: ${hints.actors.join(", ")}`);
+    }
+    const hintBlock = hintLines.length
+      ? `\n\n文件名候选匹配（数据库模糊查询确认，仅供参考）：\n${hintLines.join("\n")}`
+      : "";
 
     const systemPrompt = `你是一个助手，从视频文件名中提取结构化信息。严格按以下规则执行。
 
 【重要】对于未能从文件名中有效提取到的信息，必须留空或置 null，禁止猜测、编造或随意填写。宁可留空也不要填入不确定的内容。
 
-已知实体（仅从这些列表中匹配，或识别为 null/新值）：
-- 已知团体创作者 (creatorType=group): ${creatorGroups.length ? creatorGroups.join(", ") : "无"}
-- 已知个人创作者 (creatorType=person): ${creatorPersons.length ? creatorPersons.join(", ") : "无"}
-- 已知发行商 (distributors): ${distributorNames.length ? distributorNames.join(", ") : "无"}
-- 已知演员 (participants): ${actorNames.length ? actorNames.join(", ") : "无"}
-
 规则：
 1. 方括号 [] 中的内容通常是创作者或发行商
 2. 若 creator 以 @ 开头或包含 onlyfans、justforfans、fansone（不区分大小写），则为 person
 3. 若上述平台关键词存在但无法识别有效创作者，creator 设为 null，放入 distributors
-4. 优先在已知列表中匹配；若匹配到已知团体创作者则 creatorType=group，匹配到已知个人则 creatorType=person
-5. creator 和 distributor 名称不要包含方括号 []
-6. distributors、participants 若无法明确识别则返回空数组 []，不要填入不确定的项`;
+4. creator 和 distributor 名称不要包含方括号 []
+5. distributors、actors 若无法明确识别则返回空数组 []，不要填入不确定的项${hintBlock}`;
 
     const completion = await this.openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -129,14 +473,16 @@ class VideosService {
       return { title: filename.replace(/\.[^.]+$/, "") };
     }
 
+    this.logger.debug(`视频信息推理 token 消耗: ${completion.usage?.total_tokens}`);
+
     const args = JSON.parse(toolCall.function.arguments) as InferVideoInfoResult;
-    return {
+    return this.resolveInfoWithDatabase({
       title: args.title ?? filename.replace(/\.[^.]+$/, ""),
       creator: args.creator ?? null,
       creatorType: args.creatorType,
       distributors: args.distributors ?? [],
-      participants: args.participants ?? [],
-    };
+      actors: args.actors ?? [],
+    });
   }
 
   private async applyInferredInfo(
@@ -156,7 +502,7 @@ class VideosService {
     const creatorType = info.creatorType ?? "person";
     if (info.creator) {
       let creator = await tx.query.creatorsTable.findFirst({
-        where: ilike(creatorsTable.name, info.creator),
+        where: ilike(creatorsTable.name, this.toLikePattern(info.creator)),
         columns: { id: true },
       });
       if (!creator) {
@@ -173,7 +519,7 @@ class VideosService {
 
     for (const name of info.distributors ?? []) {
       let dist = await tx.query.distributorsTable.findFirst({
-        where: ilike(distributorsTable.name, name),
+        where: ilike(distributorsTable.name, this.toLikePattern(name)),
         columns: { id: true },
       });
       if (!dist) {
@@ -185,9 +531,9 @@ class VideosService {
       }
     }
 
-    for (const name of info.participants ?? []) {
+    for (const name of info.actors ?? []) {
       let actor = await tx.query.actorsTable.findFirst({
-        where: ilike(actorsTable.name, name),
+        where: ilike(actorsTable.name, this.toLikePattern(name)),
         columns: { id: true },
       });
       if (!actor) {
@@ -204,6 +550,15 @@ class VideosService {
     videoFile: VideoFile,
     options?: { autoExtract?: boolean }
   ) {
+    // 查询 uniqueId 是否已经存在
+    const content = await db.query.videoUniqueContentsTable.findFirst({
+      where: eq(videoUniqueContentsTable.uniqueId, videoFile.uniqueId),
+      with: { video: { with: videoWithRelations } },
+    });
+    if (content?.video) {
+      return toVideoResponse(content.video as Parameters<typeof toVideoResponse>[0]);
+    }
+
     const autoExtract = options?.autoExtract ?? true;
     let inferredInfo: InferVideoInfoResult | null = null;
 
@@ -211,7 +566,7 @@ class VideosService {
       inferredInfo = await this.inferVideoInfo(basename(videoFile.fileKey));
     }
 
-    return await db.transaction(async (tx) => {
+    const raw = await db.transaction(async (tx) => {
       const existing = await tx.query.videoUniqueContentsTable.findFirst({
         where: eq(videoUniqueContentsTable.uniqueId, videoFile.uniqueId),
         with: { video: true },
@@ -222,6 +577,7 @@ class VideosService {
         }
         return tx.query.videosTable.findFirst({
           where: eq(videosTable.id, existing.video.id),
+          with: videoWithRelations,
         });
       }
       const thumbnailKey = fileManager.exists(`${videoFile.uniqueId}.jpg`, FileCategory.Thumbnails)
@@ -240,8 +596,10 @@ class VideosService {
       }
       return tx.query.videosTable.findFirst({
         where: eq(videosTable.id, created.id),
+        with: videoWithRelations,
       });
     });
+    return raw ? toVideoResponse(raw as Parameters<typeof toVideoResponse>[0]) : null;
   }
 
   async reExtractVideoInfo(videoId: number): Promise<{ video: Awaited<ReturnType<typeof db.query.videosTable.findFirst>>; info: InferVideoInfoResult } | null> {

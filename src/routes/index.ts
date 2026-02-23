@@ -49,7 +49,7 @@ export const appRoutes = new Elysia({ prefix: "/api" })
       const message =
         typeof responseValue === "object" && responseValue !== null && "message" in responseValue
           ? String((responseValue as { message: unknown }).message)
-          : "Request failed";
+          : "请求失败";
       return toError(message);
     }
 
@@ -62,7 +62,7 @@ export const appRoutes = new Elysia({ prefix: "/api" })
 
       const details = process.env.NODE_ENV !== "production" ?
         ((error as any).all?.map((item: any) => ({
-          field: item.path?.replace(/^\//, "") || "unknown",
+          field: item.path?.replace(/^\//, "") || "未知",
           message: item.message,
         })) ?? []) : undefined;
 

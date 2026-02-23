@@ -52,11 +52,11 @@ export const fileRoutes = new Elysia({ prefix: "/file" })
       const { category, key } = params;
       if (!isSafeKey(key)) {
         set.status = 400;
-        return { message: "invalid key" };
+        return { message: "key 无效" };
       }
       if (!fileManager.exists(key, category as FileCategory)) {
         set.status = 404;
-        return { message: "file not found" };
+        return { message: "文件不存在" };
       }
       const buf = await fileManager.read(key, category as FileCategory);
       const ext = extname(key);
@@ -78,11 +78,11 @@ export const fileRoutes = new Elysia({ prefix: "/file" })
       const { category, key } = params;
       if (!isSafeKey(key)) {
         set.status = 400;
-        return { message: "invalid key" };
+        return { message: "key 无效" };
       }
       if (!fileManager.exists(key, category as FileCategory)) {
         set.status = 404;
-        return { message: "file not found" };
+        return { message: "文件不存在" };
       }
       await fileManager.delete(key, category as FileCategory);
       return { success: true };

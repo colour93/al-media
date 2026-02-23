@@ -47,6 +47,13 @@ export const parsePagination = (query: PaginationQuery, set: SetStatus) => {
   };
 };
 
+export type PaginatedResult<T> = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: T[];
+};
+
 export const parseSearchQuery = (query: SearchQuery, set: SetStatus) => {
   const pagination = parsePagination(query, set);
   if (!pagination) {

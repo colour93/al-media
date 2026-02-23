@@ -71,10 +71,10 @@ class VideoFileDirScanTask {
 
   private throwIfInterrupted() {
     if (this.cancelRequested) {
-      throw new Error("scan task cancelled");
+      throw new Error("扫描任务已取消");
     }
     if (this.stopRequested) {
-      throw new Error("scan task stopped");
+      throw new Error("扫描任务已停止");
     }
   }
 
@@ -185,11 +185,11 @@ class VideoFileDirScanTask {
         this.complete();
       }
     } catch (error) {
-      if (error instanceof Error && error.message === "scan task cancelled") {
+      if (error instanceof Error && error.message === "扫描任务已取消") {
         this.status = "aborted";
         return;
       }
-      if (error instanceof Error && error.message === "scan task stopped") {
+      if (error instanceof Error && error.message === "扫描任务已停止") {
         this.status = "stopped";
         return;
       }

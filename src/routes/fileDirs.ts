@@ -1,75 +1,30 @@
 import { Elysia, t } from "elysia";
-import { eq, ilike } from "drizzle-orm";
-import { db } from "../db";
-import { fileDirsTable } from "../entities/FileDir";
+import { fileDirsService } from "../services/fileDirs";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
 } from "../utils/pagination";
-import { videoFileManager } from "../services/videoFileManager";
 
 export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
   .get(
     "/",
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
-      if (!pagination) {
-        return { message: "invalid pagination" };
-      }
-
-      const { page, pageSize, offset } = pagination;
-      const [items, total] = await Promise.all([
-        db.query.fileDirsTable.findMany({
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(fileDirsTable),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!pagination) return { message: "分页参数无效" };
+      return fileDirsService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
     },
-    {
-      query: paginationQuerySchema,
-    }
+    { query: paginationQuerySchema }
   )
   .get(
     "/search",
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
-      if (!parsed) {
-        return { message: "invalid search" };
-      }
-
-      const { page, pageSize, offset, keyword } = parsed;
-      const condition = ilike(fileDirsTable.path, `%${keyword}%`);
-      const [items, total] = await Promise.all([
-        db.query.fileDirsTable.findMany({
-          where: condition,
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(fileDirsTable, condition),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!parsed) return { message: "搜索参数无效" };
+      return fileDirsService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
     },
-    {
-      query: searchQuerySchema,
-    }
+    { query: searchQuerySchema }
   )
   .get(
     "/:id",
@@ -77,41 +32,27 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const item = await db.query.fileDirsTable.findFirst({
-        where: eq(fileDirsTable.id, id),
-      });
+      const item = await fileDirsService.findById(id);
       if (!item) {
         set.status = 404;
-        return { message: "file dir not found" };
+        return { message: "文件目录不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/",
     async ({ body, set }) => {
-      const rows = await db
-        .insert(fileDirsTable)
-        .values({
-          path: body.path,
-          enabled: body.enabled ?? true,
-        })
-        .returning();
-
+      const item = await fileDirsService.create({ path: body.path, enabled: body.enabled });
+      if (!item) {
+        set.status = 500;
+        return { message: "创建文件目录失败" };
+      }
       set.status = 201;
-
-      videoFileManager.init()
-
-      return rows[0];
+      return item;
     },
     {
       body: t.Object({
@@ -126,42 +67,22 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       if (body.enabled === undefined) {
         set.status = 400;
-        return { message: "no fields to update" };
+        return { message: "没有可更新的字段" };
       }
-
-      const rows = await db
-        .update(fileDirsTable)
-        .set({
-          // path: body.path ?? undefined,
-          enabled: body.enabled ?? undefined,
-          updatedAt: new Date(),
-        })
-        .where(eq(fileDirsTable.id, id))
-        .returning();
-
-      const item = rows[0];
+      const item = await fileDirsService.update(id, { enabled: body.enabled });
       if (!item) {
         set.status = 404;
-        return { message: "file dir not found" };
+        return { message: "文件目录不存在" };
       }
-
-      videoFileManager.init()
-
       return item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
-      body: t.Object({
-        // path: t.Optional(t.String({ minLength: 1 })),
-        enabled: t.Optional(t.Boolean()),
-      }),
+      params: t.Object({ id: t.String() }),
+      body: t.Object({ enabled: t.Optional(t.Boolean()) }),
     }
   )
   .delete(
@@ -170,27 +91,14 @@ export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const rows = await db
-        .delete(fileDirsTable)
-        .where(eq(fileDirsTable.id, id))
-        .returning();
-
-      const item = rows[0];
+      const item = await fileDirsService.delete(id);
       if (!item) {
         set.status = 404;
-        return { message: "file dir not found" };
+        return { message: "文件目录不存在" };
       }
-
-      videoFileManager.init()
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   );

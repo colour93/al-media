@@ -1,11 +1,6 @@
 import { Elysia, t } from "elysia";
-import { eq, ilike, inArray } from "drizzle-orm";
-import { db } from "../db";
-import { actorsTable } from "../entities/Actor";
-import { creatorsTable } from "../entities/Creator";
-import { creatorTagsTable } from "../entities/CreatorTag";
-import { tagsTable } from "../entities/Tag";
-import { videoCreatorsTable } from "../entities/VideoCreator";
+import { creatorsService } from "../services/creators";
+import { tagsService } from "../services/tags";
 import {
   paginationQuerySchema,
   parsePagination,
@@ -13,100 +8,33 @@ import {
   searchQuerySchema,
 } from "../utils/pagination";
 
-const normalizeTagIds = (tagIds: number[]) => [...new Set(tagIds)];
+const normalizeTagIds = (ids: number[]) => [...new Set(ids)];
 
-const hasAllTags = async (tagIds: number[]) => {
-  if (tagIds.length === 0) {
-    return true;
-  }
-
-  const rows = await db.query.tagsTable.findMany({
-    where: inArray(tagsTable.id, tagIds),
-    columns: { id: true },
-  });
-  return rows.length === tagIds.length;
-};
-
-const hasActor = async (actorId: number) => {
-  const item = await db.query.actorsTable.findFirst({
-    where: eq(actorsTable.id, actorId),
-    columns: { id: true },
-  });
-  return !!item;
-};
-
-const toCreatorResponse = (item: any) => {
-  if (!item) {
-    return null;
-  }
-
-  const { creatorTags, ...creator } = item;
-  return {
-    ...creator,
-    tags: creatorTags.map((it: any) => it.tag).filter((tag: any) => tag != null),
-  };
-};
+const creatorPlatformUnion = t.Union([
+  t.Literal("onlyfans"),
+  t.Literal("justforfans"),
+  t.Literal("fansone"),
+  t.Literal("fansonly"),
+]);
 
 export const creatorsRoutes = new Elysia({ prefix: "/creators" })
   .get(
     "/",
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
-      if (!pagination) {
-        return { message: "invalid pagination" };
-      }
-
-      const { page, pageSize, offset } = pagination;
-      const [items, total] = await Promise.all([
-        db.query.creatorsTable.findMany({
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(creatorsTable),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!pagination) return { message: "分页参数无效" };
+      return creatorsService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
     },
-    {
-      query: paginationQuerySchema,
-    }
+    { query: paginationQuerySchema }
   )
   .get(
     "/search",
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
-      if (!parsed) {
-        return { message: "invalid search" };
-      }
-
-      const { page, pageSize, offset, keyword } = parsed;
-      const condition = ilike(creatorsTable.name, `%${keyword}%`);
-      const [items, total] = await Promise.all([
-        db.query.creatorsTable.findMany({
-          where: condition,
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(creatorsTable, condition),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!parsed) return { message: "搜索参数无效" };
+      return creatorsService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
     },
-    {
-      query: searchQuerySchema,
-    }
+    { query: searchQuerySchema }
   )
   .get(
     "/:id",
@@ -114,107 +42,56 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const item = await db.query.creatorsTable.findFirst({
-        where: eq(creatorsTable.id, id),
-        with: {
-          actor: true,
-          creatorTags: {
-            with: {
-              tag: true,
-            },
-          },
-        },
-      });
+      const item = await creatorsService.findByIdWithTags(id);
       if (!item) {
         set.status = 404;
-        return { message: "creator not found" };
+        return { message: "创作者不存在" };
       }
-
-      return toCreatorResponse(item);
+      return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/",
     async ({ body, set }) => {
       if (body.actorId !== undefined && body.actorId !== null) {
-        const actorExists = await hasActor(body.actorId);
+        const actorExists = await creatorsService.actorExists(body.actorId);
         if (!actorExists) {
           set.status = 400;
-          return { message: "actorId not found" };
+          return { message: "演员 ID 不存在" };
         }
       }
-
       const tagIds = normalizeTagIds(body.tags ?? []);
-      const allTagsExist = await hasAllTags(tagIds);
+      const allTagsExist = await tagsService.idsExist(tagIds);
       if (!allTagsExist) {
         set.status = 400;
-        return { message: "tagId not found" };
+        return { message: "标签 ID 不存在" };
       }
-
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .insert(creatorsTable)
-          .values({
-            name: body.name,
-            type: body.type,
-            actorId: body.actorId ?? null,
-            platform: body.platform ?? null,
-            platformId: body.platformId ?? null,
-          })
-          .returning();
-        const created = rows[0];
-        if (!created) {
-          return null;
-        }
-
-        if (tagIds.length > 0) {
-          await tx.insert(creatorTagsTable).values(tagIds.map((tagId) => ({ creatorId: created.id, tagId })));
-        }
-
-        return tx.query.creatorsTable.findFirst({
-          where: eq(creatorsTable.id, created.id),
-          with: {
-            actor: true,
-            creatorTags: {
-              with: {
-                tag: true,
-              },
-            },
-          },
-        });
-      });
-
+      const item = await creatorsService.create(
+        {
+          name: body.name,
+          type: body.type,
+          actorId: body.actorId ?? null,
+          platform: body.platform ?? null,
+          platformId: body.platformId ?? null,
+        },
+        tagIds
+      );
       if (!item) {
         set.status = 500;
-        return { message: "failed to create creator" };
+        return { message: "创建创作者失败" };
       }
-
       set.status = 201;
-      return toCreatorResponse(item);
+      return item;
     },
     {
       body: t.Object({
         name: t.String({ minLength: 1 }),
         type: t.Union([t.Literal("person"), t.Literal("group")]),
         actorId: t.Optional(t.Nullable(t.Integer())),
-        platform: t.Optional(
-          t.Nullable(
-            t.Union([
-              t.Literal("onlyfans"),
-              t.Literal("justforfans"),
-              t.Literal("fansone"),
-              t.Literal("fansonly"),
-            ])
-          )
-        ),
+        platform: t.Optional(t.Nullable(creatorPlatformUnion)),
         platformId: t.Optional(t.Nullable(t.String())),
         tags: t.Optional(t.Array(t.Integer())),
       }),
@@ -226,9 +103,8 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       if (
         !body.name &&
         body.type === undefined &&
@@ -238,95 +114,47 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
         body.tags === undefined
       ) {
         set.status = 400;
-        return { message: "no fields to update" };
+        return { message: "没有可更新的字段" };
       }
-
       if (body.actorId !== undefined && body.actorId !== null) {
-        const actorExists = await hasActor(body.actorId);
+        const actorExists = await creatorsService.actorExists(body.actorId);
         if (!actorExists) {
           set.status = 400;
-          return { message: "actorId not found" };
+          return { message: "演员 ID 不存在" };
         }
       }
-
       const tagIds = body.tags === undefined ? undefined : normalizeTagIds(body.tags);
       if (tagIds !== undefined) {
-        const allTagsExist = await hasAllTags(tagIds);
+        const allTagsExist = await tagsService.idsExist(tagIds);
         if (!allTagsExist) {
           set.status = 400;
-          return { message: "tagId not found" };
+          return { message: "标签 ID 不存在" };
         }
       }
-
-      let creatorNotFound = false;
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .update(creatorsTable)
-          .set({
-            name: body.name ?? undefined,
-            type: body.type ?? undefined,
-            actorId: body.actorId !== undefined ? body.actorId : undefined,
-            platform: body.platform !== undefined ? body.platform : undefined,
-            platformId: body.platformId !== undefined ? body.platformId : undefined,
-            updatedAt: new Date(),
-          })
-          .where(eq(creatorsTable.id, id))
-          .returning();
-        const updated = rows[0];
-        if (!updated) {
-          creatorNotFound = true;
-          return null;
-        }
-
-        if (tagIds !== undefined) {
-          await tx.delete(creatorTagsTable).where(eq(creatorTagsTable.creatorId, id));
-          if (tagIds.length > 0) {
-            await tx.insert(creatorTagsTable).values(tagIds.map((tagId) => ({ creatorId: id, tagId })));
-          }
-        }
-
-        return tx.query.creatorsTable.findFirst({
-          where: eq(creatorsTable.id, id),
-          with: {
-            actor: true,
-            creatorTags: {
-              with: {
-                tag: true,
-              },
-            },
-          },
-        });
-      });
-
+      const { item, creatorNotFound } = await creatorsService.update(
+        id,
+        {
+          name: body.name ?? undefined,
+          type: body.type ?? undefined,
+          actorId: body.actorId !== undefined ? body.actorId : undefined,
+          platform: body.platform !== undefined ? body.platform : undefined,
+          platformId: body.platformId !== undefined ? body.platformId : undefined,
+        },
+        tagIds
+      );
       if (!item) {
-        if (creatorNotFound) {
-          set.status = 404;
-          return { message: "creator not found" };
-        }
-        set.status = 500;
-        return { message: "failed to update creator" };
+        set.status = creatorNotFound ? 404 : 500;
+        return { message: creatorNotFound ? "创作者不存在" : "更新创作者失败" };
       }
-
-      return toCreatorResponse(item);
+      return item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
+      params: t.Object({ id: t.String() }),
       body: t.Object({
         name: t.Optional(t.String({ minLength: 1 })),
         type: t.Optional(t.Union([t.Literal("person"), t.Literal("group")])),
         actorId: t.Optional(t.Nullable(t.Integer())),
-        platform: t.Optional(
-          t.Nullable(
-            t.Union([
-              t.Literal("onlyfans"),
-              t.Literal("justforfans"),
-              t.Literal("fansone"),
-              t.Literal("fansonly"),
-            ])
-          )
-        ),
+        platform: t.Optional(t.Nullable(creatorPlatformUnion)),
         platformId: t.Optional(t.Nullable(t.String())),
         tags: t.Optional(t.Array(t.Integer())),
       }),
@@ -338,64 +166,24 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       const tagIds = normalizeTagIds(body.tags);
-      const allTagsExist = await hasAllTags(tagIds);
+      const allTagsExist = await tagsService.idsExist(tagIds);
       if (!allTagsExist) {
         set.status = 400;
-        return { message: "tagId not found" };
+        return { message: "标签 ID 不存在" };
       }
-
-      let creatorNotFound = false;
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .update(creatorsTable)
-          .set({ updatedAt: new Date() })
-          .where(eq(creatorsTable.id, id))
-          .returning({ id: creatorsTable.id });
-        if (!rows[0]) {
-          creatorNotFound = true;
-          return null;
-        }
-
-        await tx.delete(creatorTagsTable).where(eq(creatorTagsTable.creatorId, id));
-        if (tagIds.length > 0) {
-          await tx.insert(creatorTagsTable).values(tagIds.map((tagId) => ({ creatorId: id, tagId })));
-        }
-
-        return tx.query.creatorsTable.findFirst({
-          where: eq(creatorsTable.id, id),
-          with: {
-            actor: true,
-            creatorTags: {
-              with: {
-                tag: true,
-              },
-            },
-          },
-        });
-      });
-
+      const { item, creatorNotFound } = await creatorsService.updateTagsOnly(id, tagIds);
       if (!item) {
-        if (creatorNotFound) {
-          set.status = 404;
-          return { message: "creator not found" };
-        }
-        set.status = 500;
-        return { message: "failed to update creator tags" };
+        set.status = creatorNotFound ? 404 : 500;
+        return { message: creatorNotFound ? "创作者不存在" : "更新创作者标签失败" };
       }
-
-      return toCreatorResponse(item);
+      return item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
-      body: t.Object({
-        tags: t.Array(t.Integer()),
-      }),
+      params: t.Object({ id: t.String() }),
+      body: t.Object({ tags: t.Array(t.Integer()) }),
     }
   )
   .delete(
@@ -404,34 +192,18 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const refs = await db.query.videoCreatorsTable.findMany({
-        where: eq(videoCreatorsTable.creatorId, id),
-        limit: 1,
-      });
-      if (refs.length > 0) {
+      const { item, hasRefs } = await creatorsService.delete(id);
+      if (hasRefs) {
         set.status = 409;
-        return { message: "creator is referenced by videos, cannot delete" };
+        return { message: "创作者被视频引用，无法删除" };
       }
-
-      const rows = await db
-        .delete(creatorsTable)
-        .where(eq(creatorsTable.id, id))
-        .returning();
-
-      const item = rows[0];
       if (!item) {
         set.status = 404;
-        return { message: "creator not found" };
+        return { message: "创作者不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   );

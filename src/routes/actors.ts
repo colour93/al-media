@@ -1,10 +1,6 @@
 import { Elysia, t } from "elysia";
-import { eq, ilike, inArray } from "drizzle-orm";
-import { db } from "../db";
-import { actorsTable } from "../entities/Actor";
-import { actorTagsTable } from "../entities/ActorTag";
-import { tagsTable } from "../entities/Tag";
-import { videoActorsTable } from "../entities/VideoActor";
+import { actorsService } from "../services/actors";
+import { tagsService } from "../services/tags";
 import { fileManager, FileCategory } from "../services/fileManager";
 import {
   paginationQuerySchema,
@@ -13,92 +9,26 @@ import {
   searchQuerySchema,
 } from "../utils/pagination";
 
-const normalizeTagIds = (tagIds: number[]) => [...new Set(tagIds)];
-
-const hasAllTags = async (tagIds: number[]) => {
-  if (tagIds.length === 0) {
-    return true;
-  }
-
-  const rows = await db.query.tagsTable.findMany({
-    where: inArray(tagsTable.id, tagIds),
-    columns: { id: true },
-  });
-  return rows.length === tagIds.length;
-};
-
-const toActorResponse = (item: any) => {
-  if (!item) {
-    return null;
-  }
-
-  const { actorTags, ...actor } = item;
-  return {
-    ...actor,
-    tags: actorTags.map((it: any) => it.tag).filter((tag: any) => tag != null),
-  };
-};
+const normalizeTagIds = (ids: number[]) => [...new Set(ids)];
 
 export const actorsRoutes = new Elysia({ prefix: "/actors" })
   .get(
     "/",
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
-      if (!pagination) {
-        return { message: "invalid pagination" };
-      }
-
-      const { page, pageSize, offset } = pagination;
-      const [items, total] = await Promise.all([
-        db.query.actorsTable.findMany({
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(actorsTable),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!pagination) return { message: "分页参数无效" };
+      return actorsService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
     },
-    {
-      query: paginationQuerySchema,
-    }
+    { query: paginationQuerySchema }
   )
   .get(
     "/search",
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
-      if (!parsed) {
-        return { message: "invalid search" };
-      }
-
-      const { page, pageSize, offset, keyword } = parsed;
-      const condition = ilike(actorsTable.name, `%${keyword}%`);
-      const [items, total] = await Promise.all([
-        db.query.actorsTable.findMany({
-          where: condition,
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(actorsTable, condition),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!parsed) return { message: "搜索参数无效" };
+      return actorsService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
     },
-    {
-      query: searchQuerySchema,
-    }
+    { query: searchQuerySchema }
   )
   .get(
     "/:id",
@@ -106,81 +36,40 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const item = await db.query.actorsTable.findFirst({
-        where: eq(actorsTable.id, id),
-        with: {
-          actorTags: {
-            with: {
-              tag: true,
-            },
-          },
-        },
-      });
+      const item = await actorsService.findByIdWithTags(id);
       if (!item) {
         set.status = 404;
-        return { message: "actor not found" };
+        return { message: "演员不存在" };
       }
-
-      return toActorResponse(item);
+      return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/",
     async ({ body, set }) => {
       if (body.avatarKey != null && !fileManager.exists(body.avatarKey, FileCategory.Avatars)) {
         set.status = 400;
-        return { message: "avatarKey file not found" };
+        return { message: "头像文件不存在" };
       }
       const tagIds = normalizeTagIds(body.tags ?? []);
-      const allTagsExist = await hasAllTags(tagIds);
+      const allTagsExist = await tagsService.idsExist(tagIds);
       if (!allTagsExist) {
         set.status = 400;
-        return { message: "tagId not found" };
+        return { message: "标签 ID 不存在" };
       }
-
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .insert(actorsTable)
-          .values({
-            name: body.name,
-            avatarKey: body.avatarKey,
-          })
-          .returning();
-        const createdActor = rows[0];
-        if (!createdActor) {
-          return null;
-        }
-
-        if (tagIds.length > 0) {
-          await tx.insert(actorTagsTable).values(tagIds.map((tagId) => ({ actorId: createdActor.id, tagId })));
-        }
-
-        return tx.query.actorsTable.findFirst({
-          where: eq(actorsTable.id, createdActor.id),
-          with: {
-            actorTags: {
-              with: {
-                tag: true,
-              },
-            },
-          },
-        });
-      });
-
+      const item = await actorsService.create(
+        { name: body.name, avatarKey: body.avatarKey ?? null },
+        tagIds
+      );
       if (!item) {
         set.status = 500;
-        return { message: "failed to create actor" };
+        return { message: "创建演员失败" };
       }
       set.status = 201;
-      return toActorResponse(item);
+      return item;
     },
     {
       body: t.Object({
@@ -196,79 +85,40 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       if (!body.name && !body.avatarKey && body.tags === undefined) {
         set.status = 400;
-        return { message: "no fields to update" };
+        return { message: "没有可更新的字段" };
       }
-
       if (body.avatarKey != null && !fileManager.exists(body.avatarKey, FileCategory.Avatars)) {
         set.status = 400;
-        return { message: "avatarKey file not found" };
+        return { message: "头像文件不存在" };
       }
-
       const tagIds = body.tags === undefined ? undefined : normalizeTagIds(body.tags);
       if (tagIds !== undefined) {
-        const allTagsExist = await hasAllTags(tagIds);
+        const allTagsExist = await tagsService.idsExist(tagIds);
         if (!allTagsExist) {
           set.status = 400;
-          return { message: "tagId not found" };
+          return { message: "标签 ID 不存在" };
         }
       }
-
-      let actorNotFound = false;
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .update(actorsTable)
-          .set({
-            name: body.name ?? undefined,
-            avatarKey: body.avatarKey ?? undefined,
-            updatedAt: new Date(),
-          })
-          .where(eq(actorsTable.id, id))
-          .returning();
-        const updatedActor = rows[0];
-        if (!updatedActor) {
-          actorNotFound = true;
-          return null;
-        }
-
-        if (tagIds !== undefined) {
-          await tx.delete(actorTagsTable).where(eq(actorTagsTable.actorId, id));
-          if (tagIds.length > 0) {
-            await tx.insert(actorTagsTable).values(tagIds.map((tagId) => ({ actorId: id, tagId })));
-          }
-        }
-
-        return tx.query.actorsTable.findFirst({
-          where: eq(actorsTable.id, id),
-          with: {
-            actorTags: {
-              with: {
-                tag: true,
-              },
-            },
-          },
-        });
-      });
-
+      const { item, actorNotFound } = await actorsService.update(
+        id,
+        {
+          name: body.name ?? undefined,
+          avatarKey: body.avatarKey ?? undefined,
+        },
+        tagIds
+      );
       if (!item) {
-        if (actorNotFound) {
-          set.status = 404;
-          return { message: "actor not found" };
-        }
-        set.status = 500;
-        return { message: "failed to update actor" };
+        set.status = actorNotFound ? 404 : 500;
+        return { message: actorNotFound ? "演员不存在" : "更新演员失败" };
       }
-
-      return toActorResponse(item);
+      return item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
+      params: t.Object({ id: t.String() }),
       body: t.Object({
         name: t.Optional(t.String({ minLength: 1 })),
         avatarKey: t.Optional(t.String({ minLength: 1 })),
@@ -282,64 +132,24 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       const tagIds = normalizeTagIds(body.tags);
-      const allTagsExist = await hasAllTags(tagIds);
+      const allTagsExist = await tagsService.idsExist(tagIds);
       if (!allTagsExist) {
         set.status = 400;
-        return { message: "tagId not found" };
+        return { message: "标签 ID 不存在" };
       }
-
-      let actorNotFound = false;
-      const item = await db.transaction(async (tx) => {
-        const rows = await tx
-          .update(actorsTable)
-          .set({ updatedAt: new Date() })
-          .where(eq(actorsTable.id, id))
-          .returning({ id: actorsTable.id });
-        const updatedActor = rows[0];
-        if (!updatedActor) {
-          actorNotFound = true;
-          return null;
-        }
-
-        await tx.delete(actorTagsTable).where(eq(actorTagsTable.actorId, id));
-        if (tagIds.length > 0) {
-          await tx.insert(actorTagsTable).values(tagIds.map((tagId) => ({ actorId: id, tagId })));
-        }
-
-        return tx.query.actorsTable.findFirst({
-          where: eq(actorsTable.id, id),
-          with: {
-            actorTags: {
-              with: {
-                tag: true,
-              },
-            },
-          },
-        });
-      });
-
+      const { item, actorNotFound } = await actorsService.updateTagsOnly(id, tagIds);
       if (!item) {
-        if (actorNotFound) {
-          set.status = 404;
-          return { message: "actor not found" };
-        }
-        set.status = 500;
-        return { message: "failed to update actor tags" };
+        set.status = actorNotFound ? 404 : 500;
+        return { message: actorNotFound ? "演员不存在" : "更新演员标签失败" };
       }
-
-      return toActorResponse(item);
+      return item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
-      body: t.Object({
-        tags: t.Array(t.Integer()),
-      }),
+      params: t.Object({ id: t.String() }),
+      body: t.Object({ tags: t.Array(t.Integer()) }),
     }
   )
   .delete(
@@ -348,34 +158,18 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const refs = await db.query.videoActorsTable.findMany({
-        where: eq(videoActorsTable.actorId, id),
-        limit: 1,
-      });
-      if (refs.length > 0) {
+      const { item, hasRefs } = await actorsService.delete(id);
+      if (hasRefs) {
         set.status = 409;
-        return { message: "actor is referenced by videos, cannot delete" };
+        return { message: "演员被视频引用，无法删除" };
       }
-
-      const rows = await db
-        .delete(actorsTable)
-        .where(eq(actorsTable.id, id))
-        .returning();
-
-      const item = rows[0];
       if (!item) {
         set.status = 404;
-        return { message: "actor not found" };
+        return { message: "演员不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   );

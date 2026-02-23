@@ -1,7 +1,5 @@
 import { Elysia, t } from "elysia";
-import { eq, ilike, or } from "drizzle-orm";
-import { db } from "../db";
-import { distributorsTable } from "../entities/Distributor";
+import { distributorsService } from "../services/distributors";
 import {
   paginationQuerySchema,
   parsePagination,
@@ -14,64 +12,19 @@ export const distributorsRoutes = new Elysia({ prefix: "/distributors" })
     "/",
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
-      if (!pagination) {
-        return { message: "invalid pagination" };
-      }
-
-      const { page, pageSize, offset } = pagination;
-      const [items, total] = await Promise.all([
-        db.query.distributorsTable.findMany({
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(distributorsTable),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!pagination) return { message: "分页参数无效" };
+      return distributorsService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
     },
-    {
-      query: paginationQuerySchema,
-    }
+    { query: paginationQuerySchema }
   )
   .get(
     "/search",
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
-      if (!parsed) {
-        return { message: "invalid search" };
-      }
-
-      const { page, pageSize, offset, keyword } = parsed;
-      const condition = or(
-        ilike(distributorsTable.name, `%${keyword}%`),
-        ilike(distributorsTable.domain, `%${keyword}%`)
-      );
-      const [items, total] = await Promise.all([
-        db.query.distributorsTable.findMany({
-          where: condition,
-          orderBy: (t, { desc }) => [desc(t.id)],
-          limit: pageSize,
-          offset,
-        }),
-        db.$count(distributorsTable, condition),
-      ]);
-
-      return {
-        page,
-        pageSize,
-        total: total ?? 0,
-        items,
-      };
+      if (!parsed) return { message: "搜索参数无效" };
+      return distributorsService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
     },
-    {
-      query: searchQuerySchema,
-    }
+    { query: searchQuerySchema }
   )
   .get(
     "/:id",
@@ -79,38 +32,27 @@ export const distributorsRoutes = new Elysia({ prefix: "/distributors" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const item = await db.query.distributorsTable.findFirst({
-        where: eq(distributorsTable.id, id),
-      });
+      const item = await distributorsService.findById(id);
       if (!item) {
         set.status = 404;
-        return { message: "distributor not found" };
+        return { message: "发行商不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   )
   .post(
     "/",
     async ({ body, set }) => {
-      const rows = await db
-        .insert(distributorsTable)
-        .values({
-          name: body.name,
-          domain: body.domain ?? null,
-        })
-        .returning();
-
+      const item = await distributorsService.create({ name: body.name, domain: body.domain ?? null });
+      if (!item) {
+        set.status = 500;
+        return { message: "创建发行商失败" };
+      }
       set.status = 201;
-      return rows[0];
+      return item;
     },
     {
       body: t.Object({
@@ -125,36 +67,24 @@ export const distributorsRoutes = new Elysia({ prefix: "/distributors" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
       if (!body.name && body.domain === undefined) {
         set.status = 400;
-        return { message: "no fields to update" };
+        return { message: "没有可更新的字段" };
       }
-
-      const rows = await db
-        .update(distributorsTable)
-        .set({
-          name: body.name ?? undefined,
-          domain: body.domain ?? undefined,
-          updatedAt: new Date(),
-        })
-        .where(eq(distributorsTable.id, id))
-        .returning();
-
-      const item = rows[0];
+      const item = await distributorsService.update(id, {
+        name: body.name ?? undefined,
+        domain: body.domain ?? undefined,
+      });
       if (!item) {
         set.status = 404;
-        return { message: "distributor not found" };
+        return { message: "发行商不存在" };
       }
-
       return item;
     },
     {
-      params: t.Object({
-        id: t.String(),
-      }),
+      params: t.Object({ id: t.String() }),
       body: t.Object({
         name: t.Optional(t.String({ minLength: 1 })),
         domain: t.Optional(t.String()),
@@ -167,25 +97,14 @@ export const distributorsRoutes = new Elysia({ prefix: "/distributors" })
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
-        return { message: "invalid id" };
+        return { message: "ID 无效" };
       }
-
-      const rows = await db
-        .delete(distributorsTable)
-        .where(eq(distributorsTable.id, id))
-        .returning();
-
-      const item = rows[0];
+      const item = await distributorsService.delete(id);
       if (!item) {
         set.status = 404;
-        return { message: "distributor not found" };
+        return { message: "发行商不存在" };
       }
-
       return item;
     },
-    {
-      params: t.Object({
-        id: t.String(),
-      }),
-    }
+    { params: t.Object({ id: t.String() }) }
   );
