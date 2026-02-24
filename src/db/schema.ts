@@ -1,4 +1,5 @@
 export { actorsTable } from "../entities/Actor";
+export { usersTable, userRoleEnum } from "../entities/User";
 export {
   actorTagsTable,
   actorActorTagsRelations,

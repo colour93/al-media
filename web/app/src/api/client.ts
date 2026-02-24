@@ -21,6 +21,10 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
 
   if (!res.ok) {
+    if (res.status === 401 && !window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login';
+      throw new ApiError('请先登录', 401, body);
+    }
     let message = res.statusText || `请求失败 ${res.status}`;
     if (body && typeof body === 'object') {
       if ('error' in body && body.error && typeof body.error === 'object' && 'message' in body.error) {
@@ -60,10 +64,13 @@ function buildUrl(path: string, params?: RequestParams, basePrefix: 'common' | '
   return qs ? `${base}?${qs}` : base;
 }
 
+const fetchOpts = { credentials: 'include' as RequestCredentials };
+
 export async function get<T>(path: string, params?: RequestParams, basePrefix?: 'common' | 'admin'): Promise<T> {
   const res = await fetch(buildUrl(path, params, basePrefix ?? 'common'), {
     method: 'GET',
     headers: { Accept: 'application/json' },
+    ...fetchOpts,
   });
   return handleResponse<T>(res);
 }

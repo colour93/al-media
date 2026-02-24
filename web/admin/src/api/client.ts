@@ -59,10 +59,13 @@ function buildUrl(path: string, params?: RequestParams): string {
   return qs ? `${base}?${qs}` : base;
 }
 
+const fetchOpts = { credentials: 'include' as RequestCredentials };
+
 export async function get<T>(path: string, params?: RequestParams): Promise<T> {
   const res = await fetch(buildUrl(path, params), {
     method: 'GET',
     headers: { Accept: 'application/json' },
+    ...fetchOpts,
   });
   return handleResponse<T>(res);
 }
@@ -73,6 +76,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
     method: 'POST',
     headers: isFormData ? {} : { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: isFormData ? body : body ? JSON.stringify(body) : undefined,
+    ...fetchOpts,
   });
   return handleResponse<T>(res);
 }
@@ -82,6 +86,7 @@ export async function patch<T>(path: string, body: unknown): Promise<T> {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
+    ...fetchOpts,
   });
   return handleResponse<T>(res);
 }
@@ -91,6 +96,7 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
+    ...fetchOpts,
   });
   return handleResponse<T>(res);
 }
@@ -99,6 +105,7 @@ export async function del<T>(path: string): Promise<T> {
   const res = await fetch(buildUrl(path), {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
+    ...fetchOpts,
   });
   return handleResponse<T>(res);
 }

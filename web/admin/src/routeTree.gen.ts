@@ -14,6 +14,7 @@ import { Route as VideoFilesRouteImport } from './routes/video-files'
 import { Route as TagsRouteImport } from './routes/tags'
 import { Route as TagTypesRouteImport } from './routes/tag-types'
 import { Route as StrategiesRouteImport } from './routes/strategies'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as FileDirsRouteImport } from './routes/file-dirs'
 import { Route as DistributorsRouteImport } from './routes/distributors'
 import { Route as CreatorsRouteImport } from './routes/creators'
@@ -43,6 +44,11 @@ const TagTypesRoute = TagTypesRouteImport.update({
 const StrategiesRoute = StrategiesRouteImport.update({
   id: '/strategies',
   path: '/strategies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FileDirsRoute = FileDirsRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/creators': typeof CreatorsRoute
   '/distributors': typeof DistributorsRoute
   '/file-dirs': typeof FileDirsRoute
+  '/login': typeof LoginRoute
   '/strategies': typeof StrategiesRoute
   '/tag-types': typeof TagTypesRoute
   '/tags': typeof TagsRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/creators': typeof CreatorsRoute
   '/distributors': typeof DistributorsRoute
   '/file-dirs': typeof FileDirsRoute
+  '/login': typeof LoginRoute
   '/strategies': typeof StrategiesRoute
   '/tag-types': typeof TagTypesRoute
   '/tags': typeof TagsRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/creators': typeof CreatorsRoute
   '/distributors': typeof DistributorsRoute
   '/file-dirs': typeof FileDirsRoute
+  '/login': typeof LoginRoute
   '/strategies': typeof StrategiesRoute
   '/tag-types': typeof TagTypesRoute
   '/tags': typeof TagsRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/creators'
     | '/distributors'
     | '/file-dirs'
+    | '/login'
     | '/strategies'
     | '/tag-types'
     | '/tags'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/creators'
     | '/distributors'
     | '/file-dirs'
+    | '/login'
     | '/strategies'
     | '/tag-types'
     | '/tags'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/creators'
     | '/distributors'
     | '/file-dirs'
+    | '/login'
     | '/strategies'
     | '/tag-types'
     | '/tags'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   CreatorsRoute: typeof CreatorsRoute
   DistributorsRoute: typeof DistributorsRoute
   FileDirsRoute: typeof FileDirsRoute
+  LoginRoute: typeof LoginRoute
   StrategiesRoute: typeof StrategiesRoute
   TagTypesRoute: typeof TagTypesRoute
   TagsRoute: typeof TagsRoute
@@ -195,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/strategies'
       fullPath: '/strategies'
       preLoaderRoute: typeof StrategiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/file-dirs': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreatorsRoute: CreatorsRoute,
   DistributorsRoute: DistributorsRoute,
   FileDirsRoute: FileDirsRoute,
+  LoginRoute: LoginRoute,
   StrategiesRoute: StrategiesRoute,
   TagTypesRoute: TagTypesRoute,
   TagsRoute: TagsRoute,

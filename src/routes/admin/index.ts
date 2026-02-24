@@ -9,11 +9,10 @@ import { tagsRoutes } from "./tags";
 import { tagTypesRoutes } from "./tagTypes";
 import { videoFilesRoutes } from "./videoFiles";
 import { videosRoutes } from "./videos";
+import { adminAuthGuard } from "../../middleware/adminAuth";
 
 export const adminRoutes = new Elysia({ prefix: "/admin" })
-  .guard({
-    // TODO: 管理端鉴权 guard，暂未实现（如校验 token、session 等）
-  })
+  .use(adminAuthGuard)
   .use(fileRoutes)
   .use(bindingStrategiesRoutes)
   .use(videosRoutes)

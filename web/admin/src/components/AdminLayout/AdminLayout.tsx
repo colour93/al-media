@@ -18,13 +18,15 @@ import {
   Film,
   FolderOpen,
   LayoutDashboard,
+  LogOut,
   Menu,
   Target,
   Tags,
   Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Link, Outlet, useLocation } from '@tanstack/react-router';
+import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { logout } from '../../api/auth';
 import { useSidebarStore } from '../../stores/sidebar';
 
 const DRAWER_WIDTH = 180;
@@ -90,6 +92,12 @@ export function AdminLayout() {
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const { open, toggle, setOpen } = useSidebarStore();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate({ to: '/login' });
+  };
 
   useEffect(() => {
     if (!isDesktop) setOpen(false);
@@ -134,6 +142,9 @@ export function AdminLayout() {
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             视频平台管理
           </Typography>
+          <IconButton color="inherit" onClick={handleLogout} aria-label="退出登录">
+            <LogOut size={22} />
+          </IconButton>
         </Toolbar>
       </AppBar>
 

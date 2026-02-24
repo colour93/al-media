@@ -2,3 +2,4 @@
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 export const COMMON_API = `${API_BASE}/common`;
 export const ADMIN_API = `${API_BASE}/admin`;
+export const AUTH_API = `${API_BASE}/auth`;

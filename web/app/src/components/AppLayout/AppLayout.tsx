@@ -7,11 +7,15 @@ import {
   AppBar,
   Toolbar,
   Button,
+  IconButton,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
-import { Home, Film, ArrowLeft } from 'lucide-react';
-import { Link, Outlet, useLocation } from '@tanstack/react-router';
+import { Home, Film, ArrowLeft, User } from 'lucide-react';
+import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { fetchAuthMe, logout } from '../../api/auth';
 
 const isDetailPage = (pathname: string) => /^\/videos\/\d+$/.test(pathname);
 
@@ -21,8 +25,31 @@ export function AppLayout() {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const onDetailPage = isDetailPage(pathname);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
-  const navValue = pathname === '/' ? '/' : pathname.startsWith('/videos') ? '/videos' : pathname;
+  const { data: user } = useQuery({
+    queryKey: ['authMe'],
+    queryFn: fetchAuthMe,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const handleLogout = async () => {
+    setAnchorEl(null);
+    await logout();
+    queryClient.setQueryData(['authMe'], null);
+    navigate({ to: '/login' });
+  };
+
+  const navValue =
+    pathname === '/'
+      ? '/'
+      : pathname.startsWith('/videos')
+        ? '/videos'
+        : pathname === '/me'
+          ? '/me'
+          : pathname;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', pb: onDetailPage ? 0 : { xs: 8, md: 0 } }}>
@@ -33,6 +60,17 @@ export function AppLayout() {
               <Button component={Link} to="/" startIcon={<ArrowLeft size={20} />} size="small">
                 返回首页
               </Button>
+              <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
+                {user ? (
+                  <IconButton component={Link} to="/me" color="inherit" aria-label="我的">
+                    <User size={22} />
+                  </IconButton>
+                ) : (
+                  <Button component={Link} to="/login" size="small" variant="outlined">
+                    登录
+                  </Button>
+                )}
+              </Box>
             </Toolbar>
           </Container>
         </AppBar>
@@ -58,6 +96,17 @@ export function AppLayout() {
               >
                 视频
               </Button>
+              {user && (
+                <Button
+                  component={Link}
+                  to="/me"
+                  startIcon={<User size={20} />}
+                  color={navValue === '/me' ? 'primary' : 'inherit'}
+                  sx={{ fontWeight: navValue === '/me' ? 600 : 400 }}
+                >
+                  我的
+                </Button>
+              )}
             </Toolbar>
           </Container>
         </AppBar>
@@ -87,6 +136,23 @@ export function AppLayout() {
               value="/videos"
               icon={<Film size={24} />}
             />
+            {user ? (
+              <BottomNavigationAction
+                component={Link}
+                to="/me"
+                label="我的"
+                value="/me"
+                icon={<User size={24} />}
+              />
+            ) : (
+              <BottomNavigationAction
+                component={Link}
+                to="/login"
+                label="我的"
+                value="/me"
+                icon={<User size={24} />}
+              />
+            )}
           </BottomNavigation>
         </Paper>
       )}
