@@ -14,6 +14,7 @@ export interface FormDialogProps {
   onClose: () => void;
   onSubmit: () => void | Promise<void>;
   loading?: boolean;
+  submitDisabled?: boolean;
   submitLabel?: string;
   cancelLabel?: string;
   children: React.ReactNode;
@@ -28,6 +29,7 @@ export function FormDialog({
   onClose,
   onSubmit,
   loading = false,
+  submitDisabled = false,
   submitLabel = '确定',
   cancelLabel = '取消',
   children,
@@ -47,7 +49,7 @@ export function FormDialog({
         <Button onClick={onClose} disabled={loading}>
           {cancelLabel}
         </Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={loading}>
+        <Button variant="contained" onClick={handleSubmit} disabled={loading || submitDisabled}>
           {loading ? <CircularProgress size={22} /> : submitLabel}
         </Button>
       </DialogActions>

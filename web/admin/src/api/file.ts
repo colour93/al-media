@@ -23,6 +23,11 @@ export async function uploadFile(file: File, category: FileCategory): Promise<Up
   return post<UploadResult>(BASE, formData);
 }
 
-export function getFileUrl(category: FileCategory, key: string): string {
-  return `${ADMIN_API}${BASE}/${category}/${key}`;
+export function getFileUrl(
+  category: FileCategory,
+  key: string,
+  cacheBuster?: number
+): string {
+  const base = `${ADMIN_API}${BASE}/${category}/${key}`;
+  return cacheBuster != null ? `${base}?t=${cacheBuster}` : base;
 }

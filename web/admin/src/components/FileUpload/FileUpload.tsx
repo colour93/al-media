@@ -11,6 +11,8 @@ export interface FileUploadProps {
   accept?: string;
   label?: string;
   previewSize?: number;
+  /** 缓存破坏值，变化时强制刷新预览图（如截取缩略图后传入 Date.now()） */
+  cacheBuster?: number;
 }
 
 export function FileUpload({
@@ -20,12 +22,13 @@ export function FileUpload({
   accept = 'image/*',
   label = '上传',
   previewSize = 80,
+  cacheBuster,
 }: FileUploadProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const previewUrl = value ? getFileUrl(category, value) : null;
+  const previewUrl = value ? getFileUrl(category, value, cacheBuster) : null;
 
   const handleSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { actorsRoutes } from "./actors";
+import { bindingStrategiesRoutes } from "./bindingStrategies";
 import { creatorsRoutes } from "./creators";
 import { distributorsRoutes } from "./distributors";
 import { fileRoutes } from "./file";
@@ -14,6 +15,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
     // TODO: 管理端鉴权 guard，暂未实现（如校验 token、session 等）
   })
   .use(fileRoutes)
+  .use(bindingStrategiesRoutes)
   .use(videosRoutes)
   .use(videoFilesRoutes)
   .use(fileDirsRoutes)

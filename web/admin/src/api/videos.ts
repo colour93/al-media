@@ -10,6 +10,10 @@ export interface VideoDetail extends Video {
   distributors?: { id: number; name: string }[];
   tags?: { id: number; name: string }[];
   videoFileUrl?: string | null;
+  /** 关联 VideoFile 的 fileKey，用于手动提取信息参考 */
+  videoFileKey?: string | null;
+  /** 视频时长（秒），用于缩略图时间轴 */
+  videoDuration?: number;
 }
 
 export async function fetchVideosList(
@@ -108,4 +112,13 @@ export async function insertFromVideoFile(data: {
 
 export async function reExtractVideoInfo(id: number): Promise<VideoDetail> {
   return post<VideoDetail>(`${BASE}/${id}/re-extract`, {});
+}
+
+export async function captureThumbnail(
+  id: number,
+  seekSec?: number
+): Promise<{ thumbnailKey: string }> {
+  return post<{ thumbnailKey: string }>(`${BASE}/${id}/capture-thumbnail`, {
+    seekSec,
+  });
 }

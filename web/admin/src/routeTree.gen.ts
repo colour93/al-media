@@ -13,6 +13,7 @@ import { Route as VideosRouteImport } from './routes/videos'
 import { Route as VideoFilesRouteImport } from './routes/video-files'
 import { Route as TagsRouteImport } from './routes/tags'
 import { Route as TagTypesRouteImport } from './routes/tag-types'
+import { Route as StrategiesRouteImport } from './routes/strategies'
 import { Route as FileDirsRouteImport } from './routes/file-dirs'
 import { Route as DistributorsRouteImport } from './routes/distributors'
 import { Route as CreatorsRouteImport } from './routes/creators'
@@ -37,6 +38,11 @@ const TagsRoute = TagsRouteImport.update({
 const TagTypesRoute = TagTypesRouteImport.update({
   id: '/tag-types',
   path: '/tag-types',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StrategiesRoute = StrategiesRouteImport.update({
+  id: '/strategies',
+  path: '/strategies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FileDirsRoute = FileDirsRouteImport.update({
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/creators': typeof CreatorsRoute
   '/distributors': typeof DistributorsRoute
   '/file-dirs': typeof FileDirsRoute
+  '/strategies': typeof StrategiesRoute
   '/tag-types': typeof TagTypesRoute
   '/tags': typeof TagsRoute
   '/video-files': typeof VideoFilesRoute
@@ -82,6 +89,7 @@ export interface FileRoutesByTo {
   '/creators': typeof CreatorsRoute
   '/distributors': typeof DistributorsRoute
   '/file-dirs': typeof FileDirsRoute
+  '/strategies': typeof StrategiesRoute
   '/tag-types': typeof TagTypesRoute
   '/tags': typeof TagsRoute
   '/video-files': typeof VideoFilesRoute
@@ -94,6 +102,7 @@ export interface FileRoutesById {
   '/creators': typeof CreatorsRoute
   '/distributors': typeof DistributorsRoute
   '/file-dirs': typeof FileDirsRoute
+  '/strategies': typeof StrategiesRoute
   '/tag-types': typeof TagTypesRoute
   '/tags': typeof TagsRoute
   '/video-files': typeof VideoFilesRoute
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/creators'
     | '/distributors'
     | '/file-dirs'
+    | '/strategies'
     | '/tag-types'
     | '/tags'
     | '/video-files'
@@ -118,6 +128,7 @@ export interface FileRouteTypes {
     | '/creators'
     | '/distributors'
     | '/file-dirs'
+    | '/strategies'
     | '/tag-types'
     | '/tags'
     | '/video-files'
@@ -129,6 +140,7 @@ export interface FileRouteTypes {
     | '/creators'
     | '/distributors'
     | '/file-dirs'
+    | '/strategies'
     | '/tag-types'
     | '/tags'
     | '/video-files'
@@ -141,6 +153,7 @@ export interface RootRouteChildren {
   CreatorsRoute: typeof CreatorsRoute
   DistributorsRoute: typeof DistributorsRoute
   FileDirsRoute: typeof FileDirsRoute
+  StrategiesRoute: typeof StrategiesRoute
   TagTypesRoute: typeof TagTypesRoute
   TagsRoute: typeof TagsRoute
   VideoFilesRoute: typeof VideoFilesRoute
@@ -175,6 +188,13 @@ declare module '@tanstack/react-router' {
       path: '/tag-types'
       fullPath: '/tag-types'
       preLoaderRoute: typeof TagTypesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/strategies': {
+      id: '/strategies'
+      path: '/strategies'
+      fullPath: '/strategies'
+      preLoaderRoute: typeof StrategiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/file-dirs': {
@@ -221,6 +241,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreatorsRoute: CreatorsRoute,
   DistributorsRoute: DistributorsRoute,
   FileDirsRoute: FileDirsRoute,
+  StrategiesRoute: StrategiesRoute,
   TagTypesRoute: TagTypesRoute,
   TagsRoute: TagsRoute,
   VideoFilesRoute: VideoFilesRoute,

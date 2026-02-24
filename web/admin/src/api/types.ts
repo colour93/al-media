@@ -30,6 +30,23 @@ export interface FileDir {
   updatedAt: string;
 }
 
+export type BindingStrategyType = 'folder' | 'regex';
+
+export interface BindingStrategy {
+  id: number;
+  type: BindingStrategyType;
+  fileDirId: number;
+  folderPath: string | null;
+  filenameRegex: string | null;
+  tagIds: number[];
+  creatorIds: number[];
+  actorIds: number[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  fileDir?: FileDir;
+}
+
 export type FileCategory = 'avatars' | 'thumbnails' | 'misc';
 
 export interface Actor {

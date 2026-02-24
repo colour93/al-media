@@ -1,6 +1,7 @@
-import { eq, ilike, inArray, or } from "drizzle-orm";
+import { eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { distributorsTable } from "../entities/Distributor";
+import { videoDistributorsTable } from "../entities/VideoDistributor";
 import type { PaginatedResult } from "../utils/pagination";
 
 export type CreateDistributorInput = {
@@ -78,8 +79,22 @@ class DistributorsService {
   }
 
   async delete(id: number) {
+    await db.delete(videoDistributorsTable).where(eq(videoDistributorsTable.distributorId, id));
     const rows = await db.delete(distributorsTable).where(eq(distributorsTable.id, id)).returning();
     return rows[0] ?? null;
+  }
+
+  /** 按名称或规范化名称（忽略空格、大小写）查找，用于 LLM 推理去重 */
+  async findByNameOrNormalized(name: string) {
+    const normalized = name.trim().toLowerCase().replace(/\s+/g, "");
+    if (!normalized) return null;
+    return db.query.distributorsTable.findFirst({
+      where: or(
+        ilike(distributorsTable.name, `%${name.trim()}%`),
+        sql`lower(replace(${distributorsTable.name}, ' ', '')) = ${normalized}`
+      ),
+      columns: { id: true, name: true },
+    });
   }
 }
 

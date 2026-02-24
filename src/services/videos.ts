@@ -13,7 +13,10 @@ import { actorsTable } from "../entities/Actor";
 import { creatorsTable } from "../entities/Creator";
 import { distributorsTable } from "../entities/Distributor";
 import { fileManager, FileCategory } from "./fileManager";
+import { ffmpegManager } from "./ffmpegManager";
+import { videoFileManager } from "./videoFileManager";
 import { actorsService } from "./actors";
+import { bindingStrategiesService } from "./bindingStrategies";
 import { creatorsService } from "./creators";
 import { distributorsService } from "./distributors";
 import { tagsService } from "./tags";
@@ -257,10 +260,7 @@ class VideosService {
           where: ilike(creatorsTable.name, pattern),
           columns: { name: true, type: true },
         }),
-        db.query.distributorsTable.findFirst({
-          where: ilike(distributorsTable.name, pattern),
-          columns: { name: true },
-        }),
+        distributorsService.findByNameOrNormalized(candidate),
         db.query.actorsTable.findFirst({
           where: ilike(actorsTable.name, pattern),
           columns: { name: true },
@@ -308,10 +308,7 @@ class VideosService {
 
     const resolvedDistributors: string[] = [];
     for (const name of this.dedupeNames(info.distributors ?? [])) {
-      const found = await db.query.distributorsTable.findFirst({
-        where: ilike(distributorsTable.name, this.toLikePattern(name)),
-        columns: { name: true },
-      });
+      const found = await distributorsService.findByNameOrNormalized(name);
       resolvedDistributors.push(found?.name ?? name);
     }
 
@@ -395,19 +392,20 @@ class VideosService {
     });
     if (!item) return null;
     const shaped = toVideoResponse(item as Parameters<typeof toVideoResponse>[0]);
-    const [videoFileId, metaMap] = await Promise.all([
-      this.getVideoFileIdForVideo(id),
+    const [videoFileInfo, metaMap] = await Promise.all([
+      this.getVideoFileInfoForVideo(id),
       this.getVideoFileMetaMap([id]),
     ]);
-    const videoFileUrl = videoFileId
+    const videoFileUrl = videoFileInfo
       ? options?.useCommonUrl
-        ? buildCommonSignedVideoFileUrl(videoFileId, options.pathOnly ?? false)
-        : buildSignedVideoFileUrl(videoFileId)
+        ? buildCommonSignedVideoFileUrl(videoFileInfo.id, options.pathOnly ?? false)
+        : buildSignedVideoFileUrl(videoFileInfo.id)
       : null;
     const meta = metaMap.get(id);
     return {
       ...shaped,
       videoFileUrl,
+      videoFileKey: videoFileInfo?.fileKey ?? null,
       ...(meta && { videoDuration: meta.videoDuration, fileSize: meta.fileSize }),
     };
   }
@@ -532,8 +530,38 @@ class VideosService {
     return { added };
   }
 
-  /** 获取视频关联的 video file id（通过 video_unique_contents） */
-  async getVideoFileIdForVideo(videoId: number): Promise<number | null> {
+  /** 从关联视频文件截取缩略图，seekSec 默认 1 秒，返回新 thumbnailKey */
+  async captureThumbnail(
+    videoId: number,
+    seekSec?: number
+  ): Promise<{ thumbnailKey: string } | { error: string }> {
+    const content = await db.query.videoUniqueContentsTable.findFirst({
+      where: eq(videoUniqueContentsTable.videoId, videoId),
+      columns: { uniqueId: true },
+    });
+    if (!content) return { error: "视频没有关联的文件" };
+    const videoFile = await db.query.videoFilesTable.findFirst({
+      where: eq(videoFilesTable.uniqueId, content.uniqueId),
+      columns: { id: true },
+    });
+    if (!videoFile) return { error: "视频文件记录不存在" };
+    const path = await videoFileManager.getVideoFilePath(videoFile.id);
+    if (!path) return { error: "无法获取视频文件路径" };
+    const thumbBuf = await ffmpegManager.generateThumbnail(path, seekSec);
+    if (!thumbBuf) return { error: "缩略图截取失败" };
+    const thumbnailKey = `${content.uniqueId}.jpg`;
+    await fileManager.write(thumbnailKey, FileCategory.Thumbnails, thumbBuf);
+    await db
+      .update(videosTable)
+      .set({ thumbnailKey, updatedAt: new Date() })
+      .where(eq(videosTable.id, videoId));
+    return { thumbnailKey };
+  }
+
+  /** 获取视频关联的 video file id 和 fileKey（通过 video_unique_contents） */
+  async getVideoFileInfoForVideo(
+    videoId: number
+  ): Promise<{ id: number; fileKey: string } | null> {
     const content = await db.query.videoUniqueContentsTable.findFirst({
       where: eq(videoUniqueContentsTable.videoId, videoId),
       columns: { uniqueId: true },
@@ -541,9 +569,11 @@ class VideosService {
     if (!content) return null;
     const videoFile = await db.query.videoFilesTable.findFirst({
       where: eq(videoFilesTable.uniqueId, content.uniqueId),
-      columns: { id: true },
+      columns: { id: true, fileKey: true },
     });
-    return videoFile?.id ?? null;
+    return videoFile?.fileKey != null
+      ? { id: videoFile.id, fileKey: videoFile.fileKey }
+      : null;
   }
 
   /** 批量获取视频的 video_duration、file_size */
@@ -794,12 +824,12 @@ class VideosService {
     }
 
     for (const name of info.distributors ?? []) {
-      let dist = await tx.query.distributorsTable.findFirst({
-        where: ilike(distributorsTable.name, this.toLikePattern(name)),
-        columns: { id: true },
-      });
+      let dist = await distributorsService.findByNameOrNormalized(name);
       if (!dist) {
-        const [created] = await tx.insert(distributorsTable).values({ name }).returning({ id: distributorsTable.id });
+        const [created] = await tx
+          .insert(distributorsTable)
+          .values({ name: name.trim() })
+          .returning({ id: distributorsTable.id, name: distributorsTable.name });
         if (created) dist = created;
       }
       if (dist) {
@@ -881,6 +911,12 @@ class VideosService {
         with: videoWithRelations,
       });
     });
+    if (raw) {
+      await bindingStrategiesService.applyMatchingStrategiesForVideoFile(
+        { fileDirId: videoFile.fileDirId, fileKey: videoFile.fileKey },
+        (raw as { id: number }).id
+      );
+    }
     return raw ? toVideoResponse(raw as Parameters<typeof toVideoResponse>[0]) : null;
   }
 

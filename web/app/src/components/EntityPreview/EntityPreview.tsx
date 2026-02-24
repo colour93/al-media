@@ -92,13 +92,10 @@ export function EntityPreview({ entityType, entity, size = 'sm', layout = 'inlin
                 isCard
                   ? {
                       maxWidth: 64,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
                       overflow: 'hidden',
                       textAlign: 'center',
                     }
-                  : { noWrap: true, maxWidth: 100 }
+                  : { maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
               }
               title={a.name}
             >

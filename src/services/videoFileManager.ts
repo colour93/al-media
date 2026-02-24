@@ -290,6 +290,34 @@ class VideoFileManager {
       }
     }
 
+    const videoFile = await db.query.videoFilesTable.findFirst({
+      where: and(
+        eq(videoFilesTable.fileKey, relativePath),
+        eq(videoFilesTable.fileDirId, dir.id)
+      ),
+    });
+    if (videoFile?.fileDirId != null) {
+      const content = await db.query.videoUniqueContentsTable.findFirst({
+        where: eq(videoUniqueContentsTable.uniqueId, uniqueId),
+        columns: { videoId: true },
+      });
+      if (!content) {
+        const video = await (await import("./videos")).videosService.insertVideoFromVideoFile(
+          videoFile as VideoFile,
+          { autoExtract: true }
+        );
+        if (video) {
+          this.logger.debug(`已自动创建视频并应用策略: ${path}`);
+        }
+      } else {
+        await (await import("./bindingStrategies")).bindingStrategiesService.applyMatchingStrategiesForVideoFile(
+          { fileDirId: videoFile.fileDirId, fileKey: videoFile.fileKey },
+          content.videoId
+        );
+        this.logger.debug(`已自动应用策略: ${path}`);
+      }
+    }
+
     this.logger.debug(`文件已处理: ${path}, 唯一ID: ${uniqueId}, 时长: ${durationSeconds}秒`);
     return true;
   }

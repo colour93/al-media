@@ -19,6 +19,7 @@ import {
   FolderOpen,
   LayoutDashboard,
   Menu,
+  Target,
   Tags,
   Users,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ const navItems: NavItem[] = [
   { to: '/videos', label: '视频', icon: Clapperboard },
   { to: '/video-files', label: '视频文件', icon: Film },
   { to: '/file-dirs', label: '目录', icon: FolderOpen },
+  { to: '/strategies', label: '策略', icon: Target },
   { to: '/tag-types', label: '标签类型', icon: Tags },
   { to: '/tags', label: '标签', icon: Tags },
   { to: '/actors', label: '演员', icon: Users },

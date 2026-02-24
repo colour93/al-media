@@ -12,6 +12,10 @@ export {
   creatorTagRelations,
 } from "../entities/CreatorTag";
 export { distributorsTable } from "../entities/Distributor";
+export {
+  bindingStrategiesTable,
+  bindingStrategyRelations,
+} from "../entities/BindingStrategy";
 export { fileDirsTable } from "../entities/FileDir";
 export {
   videoFileUniquesTable,

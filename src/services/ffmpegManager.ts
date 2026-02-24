@@ -9,12 +9,14 @@ export class FfmpegManager {
 
   private logger = createLogger("ffmpeg-manager");
 
-  async generateThumbnail(videoPath: string): Promise<Buffer | null> {
+  /** 从视频指定时间截取缩略图，seekSec 默认 1 秒 */
+  async generateThumbnail(videoPath: string, seekSec?: number): Promise<Buffer | null> {
+    const seek = seekSec ?? THUMBNAIL_SEEK_SEC;
     const proc = spawn([
       "ffmpeg",
       "-y",
       "-ss",
-      String(THUMBNAIL_SEEK_SEC),
+      String(seek),
       "-i",
       videoPath,
       "-vframes",

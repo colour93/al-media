@@ -30,6 +30,7 @@ import {
   useVideoUpdate,
   useVideoDelete,
   useVideoReExtract,
+  useVideoCaptureThumbnail,
 } from '../hooks/useVideos';
 import { batchAddTagsToVideos } from '../api/videos';
 import { useActorsList, useActorCreate } from '../hooks/useActors';
@@ -41,6 +42,7 @@ import { renderLucideIcon } from '../utils/lucideIcons';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { VideoPreviewDialog } from '../components/VideoPreviewDialog/VideoPreviewDialog';
+import { ThumbnailCaptureVideo } from '../components/ThumbnailCaptureVideo/ThumbnailCaptureVideo';
 import { validateListSearch } from '../schemas/listSearch';
 import type { VideoDetail } from '../api/videos';
 import type { Actor } from '../api/types';
@@ -71,6 +73,7 @@ function VideosPage() {
   const updateMut = useVideoUpdate();
   const deleteMut = useVideoDelete();
   const reExtractMut = useVideoReExtract();
+  const captureThumbMut = useVideoCaptureThumbnail();
   const actorCreateMut = useActorCreate();
   const creatorCreateMut = useCreatorCreate();
   const distributorCreateMut = useDistributorCreate();
@@ -99,6 +102,7 @@ function VideosPage() {
   const [formIsBanner, setFormIsBanner] = useState(false);
   const [formBannerOrder, setFormBannerOrder] = useState<string>('');
   const [formRecommendedOrder, setFormRecommendedOrder] = useState<string>('');
+  const [thumbnailCacheBuster, setThumbnailCacheBuster] = useState<number>(0);
 
   const actors = useMemo(() => {
     const seen = new Set<number>();
@@ -182,10 +186,10 @@ function VideosPage() {
     const payload: {
       title: string;
       thumbnailKey?: string;
-      actors?: number[];
-      creators?: number[];
-      distributors?: number[];
-      tags?: number[];
+      actors: number[];
+      creators: number[];
+      distributors: number[];
+      tags: number[];
       isFeatured?: boolean;
       isBanner?: boolean;
       bannerOrder?: number | null;
@@ -193,10 +197,10 @@ function VideosPage() {
     } = {
       title: formTitle,
       thumbnailKey: formThumbnailKey ?? undefined,
-      actors: formActorIds.length ? formActorIds : undefined,
-      creators: formCreatorIds.length ? formCreatorIds : undefined,
-      distributors: formDistributorIds.length ? formDistributorIds : undefined,
-      tags: formTagIds.length ? formTagIds : undefined,
+      actors: formActorIds,
+      creators: formCreatorIds,
+      distributors: formDistributorIds,
+      tags: formTagIds,
     };
     if (editing) {
       payload.isFeatured = formIsFeatured;
@@ -468,188 +472,242 @@ function VideosPage() {
           </Button>
         ) : null}
       >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-          <TextField
-            label="标题"
-            value={formTitle}
-            onChange={(e) => setFormTitle(e.target.value)}
-            required
-            fullWidth
-            autoFocus
-          />
-          {editing && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                C 端展示
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formIsFeatured}
-                      onChange={(e) => setFormIsFeatured(e.target.checked)}
-                      size="small"
-                    />
-                  }
-                  label="推荐"
+        <Box sx={{ pt: 1 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              gap: 2,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Box sx={{ flex: { md: '0 0 320px' }, minWidth: 0 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  label="标题"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  required
+                  fullWidth
+                  autoFocus
+                  size="small"
                 />
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formIsBanner}
-                      onChange={(e) => setFormIsBanner(e.target.checked)}
-                      size="small"
-                    />
-                  }
-                  label="轮播"
-                />
+                {editing && videoDetail?.videoFileKey && (
+                  <TextField
+                    label="关联文件"
+                    value={videoDetail.videoFileKey}
+                    fullWidth
+                    multiline
+                    maxRows={2}
+                    InputProps={{ readOnly: true }}
+                    helperText="用于手动提取创作者、演员等信息时的参考"
+                    size="small"
+                  />
+                )}
+                {editing && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      C 端展示
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center' }}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formIsFeatured}
+                            onChange={(e) => setFormIsFeatured(e.target.checked)}
+                            size="small"
+                          />
+                        }
+                        label="推荐"
+                      />
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formIsBanner}
+                            onChange={(e) => setFormIsBanner(e.target.checked)}
+                            size="small"
+                          />
+                        }
+                        label="轮播"
+                      />
+                      <TextField
+                        label="推荐排序"
+                        type="number"
+                        size="small"
+                        value={formRecommendedOrder}
+                        onChange={(e) => setFormRecommendedOrder(e.target.value)}
+                        placeholder="越小越靠前"
+                        sx={{ width: 100 }}
+                      />
+                      <TextField
+                        label="轮播排序"
+                        type="number"
+                        size="small"
+                        value={formBannerOrder}
+                        onChange={(e) => setFormBannerOrder(e.target.value)}
+                        placeholder="越小越靠前"
+                        sx={{ width: 100 }}
+                      />
+                    </Box>
+                  </Box>
+                )}
+                <Box>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    缩略图
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flexWrap: 'wrap' }}>
+                      <FileUpload
+                        category="thumbnails"
+                        value={formThumbnailKey}
+                        onChange={setFormThumbnailKey}
+                        previewSize={100}
+                        cacheBuster={thumbnailCacheBuster || undefined}
+                      />
+                    </Box>
+                    {editing && videoDetail?.videoFileUrl && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          或从视频拖动时间轴选择帧后截取
+                        </Typography>
+                        <ThumbnailCaptureVideo
+                          videoUrl={videoDetail.videoFileUrl}
+                          videoDuration={videoDetail.videoDuration}
+                          onCapture={async (seekSec) => {
+                            const res = await captureThumbMut.mutateAsync({
+                              id: editing.id,
+                              seekSec,
+                            });
+                            setFormThumbnailKey(res.thumbnailKey);
+                            setThumbnailCacheBuster(Date.now());
+                            queryClient.invalidateQueries({ queryKey: ['videos', 'detail', editing.id] });
+                          }}
+                          disabled={captureThumbMut.isPending}
+                        />
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
               </Box>
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <TextField
-                  label="推荐排序"
-                  type="number"
-                  size="small"
-                  value={formRecommendedOrder}
-                  onChange={(e) => setFormRecommendedOrder(e.target.value)}
-                  placeholder="数字越小越靠前"
-                  sx={{ width: 140 }}
+            </Box>
+            <Box sx={{ flex: { md: '1 1 340px' }, minWidth: 0 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <EntityCreateAutocomplete<Actor>
+                  label="演员"
+                  placeholder="选择或输入新建"
+                  options={actors}
+                  value={selectedActors}
+                  onChange={setFormActorIds}
+                  getOptionLabel={(a) => a.name}
+                  renderOption={(_, a) => (
+                    <EntityPreview entityType="actor" entity={a} inline />
+                  )}
+                  renderTags={(value, getTagProps) =>
+                    value.map((a, index) => (
+                      <Chip
+                        {...getTagProps({ index })}
+                        key={a.id}
+                        size="small"
+                        avatar={
+                          a.avatarKey ? (
+                            <Avatar src={getFileUrl('avatars', a.avatarKey)} alt="" />
+                          ) : undefined
+                        }
+                        label={a.name}
+                      />
+                    ))
+                  }
+                  onCreate={async (name) => actorCreateMut.mutateAsync({ name })}
+                  onCreated={(entity) => setAdditionalActors((prev) => [...prev, entity])}
                 />
-                <TextField
-                  label="轮播排序"
-                  type="number"
-                  size="small"
-                  value={formBannerOrder}
-                  onChange={(e) => setFormBannerOrder(e.target.value)}
-                  placeholder="数字越小越靠前"
-                  sx={{ width: 140 }}
+                <EntityCreateAutocomplete<Creator>
+                  label="创作者"
+                  placeholder="选择或输入新建"
+                  options={creators}
+                  value={selectedCreators}
+                  onChange={setFormCreatorIds}
+                  getOptionLabel={(c) => c.name}
+                  renderOption={(_, c) => (
+                    <EntityPreview entityType="creator" entity={c} inline />
+                  )}
+                  renderTags={(value, getTagProps) =>
+                    value.map((c, index) => (
+                      <Chip
+                        {...getTagProps({ index })}
+                        key={c.id}
+                        size="small"
+                        label={c.platform ? `${c.name} (${c.platform})` : c.name}
+                      />
+                    ))
+                  }
+                  onCreate={async (name) => creatorCreateMut.mutateAsync({ name, type: 'person' })}
+                  onCreated={(entity) => setAdditionalCreators((prev) => [...prev, entity])}
+                />
+                <EntityCreateAutocomplete<Distributor>
+                  label="发行方"
+                  placeholder="选择或输入新建"
+                  options={distributors}
+                  value={selectedDistributors}
+                  onChange={setFormDistributorIds}
+                  getOptionLabel={(d) => d.name}
+                  renderOption={(_, d) => (
+                    <EntityPreview entityType="distributor" entity={d} inline />
+                  )}
+                  renderTags={(value, getTagProps) =>
+                    value.map((d, index) => (
+                      <Chip {...getTagProps({ index })} key={d.id} size="small" label={d.name} />
+                    ))
+                  }
+                  onCreate={async (name) => distributorCreateMut.mutateAsync({ name })}
+                  onCreated={(entity) => setAdditionalDistributors((prev) => [...prev, entity])}
+                />
+                <Autocomplete<Tag, true>
+                  multiple
+                  options={tags}
+                  getOptionLabel={(t) => t.name}
+                  value={selectedTags}
+                  onChange={(_, v) => setFormTagIds(v.map((t) => t.id))}
+                  renderOption={(props, t) => (
+                    <li {...props} key={t.id}>
+                      <EntityPreview
+                        entityType="tag"
+                        entity={t as Tag & { tagType?: TagType }}
+                        inline
+                      />
+                    </li>
+                  )}
+                  renderTags={(value, getTagProps) =>
+                    value.map((t, index) => {
+                      const tagWithType = t as Tag & { tagType?: TagType };
+                      const iconEl = tagWithType.tagType?.icon
+                        ? renderLucideIcon(tagWithType.tagType.icon, { size: 12 })
+                        : null;
+                      const label =
+                        tagWithType.tagType?.name
+                          ? `${tagWithType.tagType.name}: ${t.name}`
+                          : t.name;
+                      return (
+                        <Chip
+                          {...getTagProps({ index })}
+                          key={t.id}
+                          size="small"
+                          icon={iconEl ? (iconEl as React.ReactElement) : undefined}
+                          label={label}
+                          sx={{
+                            bgcolor: t.color ?? 'action.selected',
+                            '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
+                          }}
+                        />
+                      );
+                    })
+                  }
+                  renderInput={(params) => (
+                    <TextField {...params} label="标签" placeholder="选择标签" />
+                  )}
                 />
               </Box>
             </Box>
-          )}
-          <Box>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              缩略图
-            </Typography>
-            <FileUpload
-              category="thumbnails"
-              value={formThumbnailKey}
-              onChange={setFormThumbnailKey}
-              previewSize={120}
-            />
           </Box>
-          <EntityCreateAutocomplete<Actor>
-            label="演员"
-            placeholder="选择或输入新建"
-            options={actors}
-            value={selectedActors}
-            onChange={setFormActorIds}
-            getOptionLabel={(a) => a.name}
-            renderOption={(_, a) => (
-              <EntityPreview entityType="actor" entity={a} inline />
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((a, index) => (
-                <Chip
-                  {...getTagProps({ index })}
-                  key={a.id}
-                  size="small"
-                  avatar={
-                    a.avatarKey ? (
-                      <Avatar src={getFileUrl('avatars', a.avatarKey)} alt="" />
-                    ) : undefined
-                  }
-                  label={a.name}
-                />
-              ))
-            }
-            onCreate={async (name) => actorCreateMut.mutateAsync({ name })}
-            onCreated={(entity) => setAdditionalActors((prev) => [...prev, entity])}
-          />
-          <EntityCreateAutocomplete<Creator>
-            label="创作者"
-            placeholder="选择或输入新建"
-            options={creators}
-            value={selectedCreators}
-            onChange={setFormCreatorIds}
-            getOptionLabel={(c) => c.name}
-            renderOption={(_, c) => (
-              <EntityPreview entityType="creator" entity={c} inline />
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((c, index) => (
-                <Chip
-                  {...getTagProps({ index })}
-                  key={c.id}
-                  size="small"
-                  label={c.platform ? `${c.name} (${c.platform})` : c.name}
-                />
-              ))
-            }
-            onCreate={async (name) => creatorCreateMut.mutateAsync({ name, type: 'person' })}
-            onCreated={(entity) => setAdditionalCreators((prev) => [...prev, entity])}
-          />
-          <EntityCreateAutocomplete<Distributor>
-            label="发行方"
-            placeholder="选择或输入新建"
-            options={distributors}
-            value={selectedDistributors}
-            onChange={setFormDistributorIds}
-            getOptionLabel={(d) => d.name}
-            renderOption={(_, d) => (
-              <EntityPreview entityType="distributor" entity={d} inline />
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((d, index) => (
-                <Chip {...getTagProps({ index })} key={d.id} size="small" label={d.name} />
-              ))
-            }
-            onCreate={async (name) => distributorCreateMut.mutateAsync({ name })}
-            onCreated={(entity) => setAdditionalDistributors((prev) => [...prev, entity])}
-          />
-          <Autocomplete<Tag, true>
-            multiple
-            options={tags}
-            getOptionLabel={(t) => t.name}
-            value={selectedTags}
-            onChange={(_, v) => setFormTagIds(v.map((t) => t.id))}
-            renderOption={(props, t) => (
-              <li {...props} key={t.id}>
-                <EntityPreview
-                  entityType="tag"
-                  entity={t as Tag & { tagType?: TagType }}
-                  inline
-                />
-              </li>
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((t, index) => {
-                const tagWithType = t as Tag & { tagType?: TagType };
-                const iconEl = tagWithType.tagType?.icon
-                  ? renderLucideIcon(tagWithType.tagType.icon, { size: 12 })
-                  : null;
-                const label =
-                  tagWithType.tagType?.name
-                    ? `${tagWithType.tagType.name}: ${t.name}`
-                    : t.name;
-                return (
-                  <Chip
-                    {...getTagProps({ index })}
-                    key={t.id}
-                    size="small"
-                    icon={iconEl ? (iconEl as React.ReactElement) : undefined}
-                    label={label}
-                    sx={{
-                      bgcolor: t.color ?? 'action.selected',
-                      '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
-                    }}
-                  />
-                );
-              })
-            }
-            renderInput={(params) => (
-              <TextField {...params} label="标签" placeholder="选择标签" />
-            )}
-          />
         </Box>
       </FormDialog>
 

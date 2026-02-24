@@ -37,20 +37,31 @@ export function VideoCard({ video }: VideoCardProps) {
       params={{ id: String(video.id) }}
       preload="intent"
       sx={{
-        height: '100%',
+        width: '100%',
+        aspectRatio: '1/0.9',
         textDecoration: 'none',
         color: 'inherit',
-        display: 'block',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      <CardActionArea sx={{ height: '100%' }}>
-        <Box sx={{ position: 'relative' }}>
+      <CardActionArea sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Box
+          sx={{
+            position: 'relative',
+            aspectRatio: '16/9',
+            flexShrink: 0,
+            overflow: 'hidden',
+          }}
+        >
           <CardMedia
             component="img"
-            height={140}
             image={thumbUrl || undefined}
             alt={video.title}
             sx={{
+              width: '100%',
+              height: '100%',
               objectFit: 'cover',
               bgcolor: 'action.hover',
             }}
@@ -72,7 +83,7 @@ export function VideoCard({ video }: VideoCardProps) {
             </Typography>
           )}
         </Box>
-        <CardContent sx={{ py: 1.5 }}>
+        <CardContent sx={{ py: 1.5, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
           <Typography variant="body2" fontWeight={500} noWrap title={video.title}>
             {video.title}
           </Typography>

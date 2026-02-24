@@ -8,6 +8,7 @@ import {
   deleteVideo,
   insertFromVideoFile,
   reExtractVideoInfo,
+  captureThumbnail,
 } from '../api/videos';
 import { useSnackbar } from './useSnackbar';
 
@@ -133,5 +134,22 @@ export function useVideoReExtract() {
       showMessage('重新推断完成');
     },
     onError: (err: Error) => showError(err?.message ?? '重新推断失败'),
+  });
+}
+
+export function useVideoCaptureThumbnail() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: ({ id, seekSec }: { id: number; seekSec?: number }) =>
+      captureThumbnail(id, seekSec),
+    onSuccess: (data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['videos'] });
+      qc.invalidateQueries({ queryKey: KEYS.detail(id) });
+      showMessage('缩略图截取成功');
+      return data;
+    },
+    onError: (err: Error) => showError(err?.message ?? '缩略图截取失败'),
   });
 }

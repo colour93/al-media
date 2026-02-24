@@ -274,6 +274,26 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
     }
   )
   .post(
+    "/:id/capture-thumbnail",
+    async ({ params, body, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      const result = await videosService.captureThumbnail(id, body.seekSec);
+      if ("error" in result) {
+        set.status = 400;
+        return { message: result.error };
+      }
+      return result;
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({ seekSec: t.Optional(t.Number()) }),
+    }
+  )
+  .post(
     "/:id/re-extract",
     async ({ params, set }) => {
       const id = Number(params.id);
