@@ -1,11 +1,17 @@
 import { Elysia, t } from "elysia";
-import { tagsService } from "../services/tags";
+import { tagsService, type TagRelatedCategory } from "../../services/tags";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
-} from "../utils/pagination";
+} from "../../utils/pagination";
+
+const tagRelatedCategorySchema = t.Union([
+  t.Literal("actor"),
+  t.Literal("creator"),
+  t.Literal("video"),
+]);
 
 export const tagsRoutes = new Elysia({ prefix: "/tags" })
   .get(
@@ -13,7 +19,13 @@ export const tagsRoutes = new Elysia({ prefix: "/tags" })
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
       if (!pagination) return { message: "分页参数无效" };
-      return tagsService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
+      return tagsService.findManyPaginated(
+        pagination.page,
+        pagination.pageSize,
+        pagination.offset,
+        pagination.sortBy,
+        pagination.sortOrder
+      );
     },
     { query: paginationQuerySchema }
   )
@@ -22,9 +34,48 @@ export const tagsRoutes = new Elysia({ prefix: "/tags" })
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
       if (!parsed) return { message: "搜索参数无效" };
-      return tagsService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
+      return tagsService.searchPaginated(
+        parsed.keyword,
+        parsed.page,
+        parsed.pageSize,
+        parsed.offset,
+        parsed.sortBy,
+        parsed.sortOrder
+      );
     },
     { query: searchQuerySchema }
+  )
+  .get(
+    "/:id/related",
+    async ({ params, query, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      const category = query.category as TagRelatedCategory;
+      if (category !== "actor" && category !== "creator" && category !== "video") {
+        set.status = 400;
+        return { message: "category 必须为 actor、creator 或 video" };
+      }
+      const pagination = parsePagination(query, set);
+      if (!pagination) return { message: "分页参数无效" };
+      return tagsService.findRelatedByCategory(
+        id,
+        category,
+        pagination.page,
+        pagination.pageSize,
+        pagination.offset
+      );
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      query: t.Object({
+        category: tagRelatedCategorySchema,
+        page: t.Optional(t.String({ default: '1' })),
+        pageSize: t.Optional(t.String({ default: '10' })),
+      }),
+    }
   )
   .get(
     "/:id",

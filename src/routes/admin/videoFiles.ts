@@ -1,11 +1,11 @@
 import { Elysia, t } from "elysia";
-import { videoFilesService } from "../services/videoFiles";
+import { videoFilesService } from "../../services/videoFiles";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
-} from "../utils/pagination";
+} from "../../utils/pagination";
 
 export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
   .get(
@@ -13,7 +13,13 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
       if (!pagination) return { message: "分页参数无效" };
-      return videoFilesService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
+      return videoFilesService.findManyPaginated(
+        pagination.page,
+        pagination.pageSize,
+        pagination.offset,
+        pagination.sortBy,
+        pagination.sortOrder
+      );
     },
     { query: paginationQuerySchema }
   )
@@ -22,7 +28,14 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
       if (!parsed) return { message: "搜索参数无效" };
-      return videoFilesService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
+      return videoFilesService.searchPaginated(
+        parsed.keyword,
+        parsed.page,
+        parsed.pageSize,
+        parsed.offset,
+        parsed.sortBy,
+        parsed.sortOrder
+      );
     },
     { query: searchQuerySchema }
   )

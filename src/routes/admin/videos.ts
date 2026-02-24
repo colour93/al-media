@@ -1,13 +1,13 @@
 import { Elysia, t } from "elysia";
-import { fileManager, FileCategory } from "../services/fileManager";
-import { videoFilesService } from "../services/videoFiles";
-import { videosService } from "../services/videos";
+import { fileManager, FileCategory } from "../../services/fileManager";
+import { videoFilesService } from "../../services/videoFiles";
+import { videosService } from "../../services/videos";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
-} from "../utils/pagination";
+} from "../../utils/pagination";
 
 export const videosRoutes = new Elysia({ prefix: "/videos" })
   .get(
@@ -15,7 +15,13 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
       if (!pagination) return { message: "分页参数无效" };
-      return videosService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
+      return videosService.findManyPaginated(
+        pagination.page,
+        pagination.pageSize,
+        pagination.offset,
+        pagination.sortBy,
+        pagination.sortOrder
+      );
     },
     { query: paginationQuerySchema }
   )
@@ -24,7 +30,14 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
       if (!parsed) return { message: "搜索参数无效" };
-      return videosService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
+      return videosService.searchPaginated(
+        parsed.keyword,
+        parsed.page,
+        parsed.pageSize,
+        parsed.offset,
+        parsed.sortBy,
+        parsed.sortOrder
+      );
     },
     { query: searchQuerySchema }
   )
@@ -152,6 +165,73 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       return item;
     },
     { params: t.Object({ id: t.String() }) }
+  )
+  .post(
+    "/batch-add-tags",
+    async ({ body, set }) => {
+      const videoIds = body.videoIds ?? [];
+      const tagIds = body.tagIds ?? [];
+      if (!Array.isArray(videoIds) || videoIds.length === 0) {
+        set.status = 400;
+        return { message: "videoIds 不能为空" };
+      }
+      if (!Array.isArray(tagIds) || tagIds.length === 0) {
+        set.status = 400;
+        return { message: "tagIds 不能为空" };
+      }
+      const result = await videosService.batchAddTags(videoIds, tagIds);
+      return result;
+    },
+    {
+      body: t.Object({
+        videoIds: t.Array(t.Integer()),
+        tagIds: t.Array(t.Integer()),
+      }),
+    }
+  )
+  .post(
+    "/batch-add-actors",
+    async ({ body, set }) => {
+      const videoIds = body.videoIds ?? [];
+      const actorIds = body.actorIds ?? [];
+      if (!Array.isArray(videoIds) || videoIds.length === 0) {
+        set.status = 400;
+        return { message: "videoIds 不能为空" };
+      }
+      if (!Array.isArray(actorIds) || actorIds.length === 0) {
+        set.status = 400;
+        return { message: "actorIds 不能为空" };
+      }
+      return videosService.batchAddActors(videoIds, actorIds);
+    },
+    {
+      body: t.Object({
+        videoIds: t.Array(t.Integer()),
+        actorIds: t.Array(t.Integer()),
+      }),
+    }
+  )
+  .post(
+    "/batch-add-creators",
+    async ({ body, set }) => {
+      const videoIds = body.videoIds ?? [];
+      const creatorIds = body.creatorIds ?? [];
+      if (!Array.isArray(videoIds) || videoIds.length === 0) {
+        set.status = 400;
+        return { message: "videoIds 不能为空" };
+      }
+      if (!Array.isArray(creatorIds) || creatorIds.length === 0) {
+        set.status = 400;
+        return { message: "creatorIds 不能为空" };
+      }
+      return videosService.batchAddCreators(videoIds, creatorIds);
+    },
+    {
+      body: t.Object({
+        videoIds: t.Array(t.Integer()),
+        creatorIds: t.Array(t.Integer()),
+      }),
+    }
   )
   .post(
     "/insert-from-video-file",

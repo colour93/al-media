@@ -28,8 +28,8 @@ export function verifyVideoFileSign(videoFileId: number, sign: string, exp: stri
   }
 }
 
-/** 生成带签名的视频文件完整访问 URL */
+/** 生成带签名的视频文件完整访问 URL（admin file 路由在 /api/admin/file 下） */
 export function buildSignedVideoFileUrl(videoFileId: number): string {
   const { sign, exp } = createVideoFileSign(videoFileId);
-  return `${baseUrl}${apiPrefix}/file/video-stream/${videoFileId}?sign=${sign}&exp=${exp}`;
+  return `${baseUrl}${apiPrefix}/admin/file/video-stream/${videoFileId}?sign=${sign}&exp=${exp}`;
 }

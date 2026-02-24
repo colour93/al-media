@@ -5,6 +5,7 @@ import { fileDirsTable } from "../entities/FileDir";
 import type { PaginatedResult } from "../utils/pagination";
 
 const videoFileWithRelations = {
+  fileDir: { columns: { id: true, path: true } },
   videoFileUnique: {
     with: {
       videoUniqueContents: {
@@ -14,20 +15,44 @@ const videoFileWithRelations = {
   },
 } as const;
 
+const VIDEO_FILE_SORT_KEYS = ["id", "fileKey", "uniqueId", "fileSize", "videoDuration", "createdAt", "updatedAt"] as const;
+
+function buildVideoFileOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
+  const col = sortBy && VIDEO_FILE_SORT_KEYS.includes(sortBy as (typeof VIDEO_FILE_SORT_KEYS)[number])
+    ? sortBy
+    : "id";
+  const isAsc = sortOrder === "asc";
+  return (t: typeof videoFilesTable, op: { asc: (c: unknown) => unknown; desc: (c: unknown) => unknown }) =>
+    isAsc ? [op.asc(t[col as keyof typeof t])] : [op.desc(t[col as keyof typeof t])];
+}
+
 function toVideoFileResponse(
-  item: { videoFileUnique?: { videoUniqueContents?: Array<{ video: unknown }> } } & Record<string, unknown> | null | undefined
+  item: {
+    videoFileUnique?: { videoUniqueContents?: Array<{ video: unknown }> };
+    fileDir?: { path?: string };
+  } & Record<string, unknown> | null | undefined
 ) {
   if (!item) return null;
-  const { videoFileUnique, ...videoFile } = item;
+  const { videoFileUnique, fileDir, ...videoFile } = item;
   const video = videoFileUnique?.videoUniqueContents?.[0]?.video ?? null;
-  return { ...videoFile, video };
+  const videoObj = video as { thumbnailKey?: string | null } | null;
+  const thumbnailKey =
+    videoObj?.thumbnailKey ?? ((videoFile.uniqueId as string) ? `${(videoFile.uniqueId as string)}.jpg` : null);
+  return { ...videoFile, video, fileDir, thumbnailKey };
 }
 
 class VideoFilesService {
-  async findManyPaginated(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async findManyPaginated(
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
+    const orderByFn = buildVideoFileOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videoFilesTable.findMany({
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.videoFilesTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
         with: videoFileWithRelations,
@@ -37,7 +62,14 @@ class VideoFilesService {
     return { page, pageSize, total: total ?? 0, items: items.map((it) => toVideoFileResponse(it)) };
   }
 
-  async searchPaginated(keyword: string, page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async searchPaginated(
+    keyword: string,
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
     const dirsWithPath = await db
       .select({ id: fileDirsTable.id })
       .from(fileDirsTable)
@@ -51,10 +83,11 @@ class VideoFilesService {
       conditions.push(inArray(videoFilesTable.fileDirId, dirIds));
     }
     const condition = or(...conditions);
+    const orderByFn = buildVideoFileOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videoFilesTable.findMany({
         where: condition,
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.videoFilesTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
         with: videoFileWithRelations,

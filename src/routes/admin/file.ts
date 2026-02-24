@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
-import { fileService } from "../services/file";
-import { FileCategory } from "../services/fileManager";
+import { fileService } from "../../services/file";
+import { FileCategory } from "../../services/fileManager";
 
 const categorySchema = t.Union([
   t.Literal(FileCategory.Avatars),

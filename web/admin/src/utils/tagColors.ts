@@ -1,0 +1,16 @@
+export const TAG_COLOR_PRESETS: { value: string; label: string }[] = [
+  { value: '#ffcdd2', label: '红' },
+  { value: '#f8bbd0', label: '粉' },
+  { value: '#e1bee7', label: '紫' },
+  { value: '#c5cae9', label: '靛' },
+  { value: '#bbdefb', label: '蓝' },
+  { value: '#b2ebf2', label: '青' },
+  { value: '#b2dfdb', label: '绿青' },
+  { value: '#c8e6c9', label: '绿' },
+  { value: '#dcedc8', label: '浅绿' },
+  { value: '#fff9c4', label: '黄' },
+  { value: '#ffe0b2', label: '琥珀' },
+  { value: '#ffccbc', label: '橙' },
+  { value: '#d7ccc8', label: '棕' },
+  { value: '#eceff1', label: '灰' },
+];

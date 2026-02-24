@@ -1,13 +1,5 @@
 import { Elysia } from "elysia";
-import { actorsRoutes } from "./actors";
-import { creatorsRoutes } from "./creators";
-import { distributorsRoutes } from "./distributors";
-import { fileRoutes } from "./file";
-import { fileDirsRoutes } from "./fileDirs";
-import { tagsRoutes } from "./tags";
-import { tagTypesRoutes } from "./tagTypes";
-import { videoFilesRoutes } from "./videoFiles";
-import { videosRoutes } from "./videos";
+import { adminRoutes } from "./admin";
 import { ErrorCode } from "../types/error";
 import { createLogger } from "../utils/logger";
 import { BaseResponse } from "../types/response";
@@ -107,12 +99,4 @@ export const appRoutes = new Elysia({ prefix: "/api" })
     };
   })
   .get("/health", () => ({ success: true, status: "ok" }))
-  .use(fileRoutes)
-  .use(videosRoutes)
-  .use(videoFilesRoutes)
-  .use(fileDirsRoutes)
-  .use(tagsRoutes)
-  .use(tagTypesRoutes)
-  .use(actorsRoutes)
-  .use(creatorsRoutes)
-  .use(distributorsRoutes);
+  .use(adminRoutes);

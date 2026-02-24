@@ -3,10 +3,11 @@ import { db } from "../db";
 import { actorsTable } from "../entities/Actor";
 import { actorTagsTable } from "../entities/ActorTag";
 import { videoActorsTable } from "../entities/VideoActor";
+import { videosTable } from "../entities/Video";
 import type { PaginatedResult } from "../utils/pagination";
 
 const actorWithTags = {
-  actorTags: { with: { tag: true } },
+  actorTags: { with: { tag: { with: { tagType: true } } } },
 } as const;
 
 export type CreateActorInput = {
@@ -21,6 +22,8 @@ export type UpdateActorInput = {
   tags?: number[];
 };
 
+const ACTOR_SORT_KEYS = ["id", "name", "createdAt", "updatedAt"] as const;
+
 function toActorResponse(item: { actorTags: Array<{ tag: unknown }> } & Record<string, unknown>) {
   if (!item) return null;
   const { actorTags, ...actor } = item;
@@ -30,11 +33,27 @@ function toActorResponse(item: { actorTags: Array<{ tag: unknown }> } & Record<s
   };
 }
 
+function buildActorOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
+  const col = sortBy && ACTOR_SORT_KEYS.includes(sortBy as (typeof ACTOR_SORT_KEYS)[number])
+    ? sortBy
+    : "id";
+  const isAsc = sortOrder === "asc";
+  return (t: typeof actorsTable, op: { asc: (c: unknown) => unknown; desc: (c: unknown) => unknown }) =>
+    isAsc ? [op.asc(t[col as keyof typeof t])] : [op.desc(t[col as keyof typeof t])];
+}
+
 class ActorsService {
-  async findManyPaginated(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async findManyPaginated(
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
+    const orderByFn = buildActorOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.actorsTable.findMany({
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.actorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
       }),
@@ -43,12 +62,20 @@ class ActorsService {
     return { page, pageSize, total: total ?? 0, items };
   }
 
-  async searchPaginated(keyword: string, page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async searchPaginated(
+    keyword: string,
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
     const condition = ilike(actorsTable.name, `%${keyword}%`);
+    const orderByFn = buildActorOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.actorsTable.findMany({
         where: condition,
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.actorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
       }),
@@ -62,6 +89,33 @@ class ActorsService {
       where: eq(actorsTable.id, id),
       with: actorWithTags,
     });
+  }
+
+  async findVideosByActorId(
+    actorId: number,
+    page: number,
+    pageSize: number,
+    offset: number
+  ): Promise<PaginatedResult<unknown>> {
+    const videoIds = await db
+      .select({ videoId: videoActorsTable.videoId })
+      .from(videoActorsTable)
+      .where(eq(videoActorsTable.actorId, actorId));
+    const ids = videoIds.map((v) => v.videoId);
+    if (ids.length === 0) {
+      return { page, pageSize, total: 0, items: [] };
+    }
+    const condition = inArray(videosTable.id, ids);
+    const [items, total] = await Promise.all([
+      db.query.videosTable.findMany({
+        where: condition,
+        orderBy: (t, { desc }) => [desc(t.id)],
+        limit: pageSize,
+        offset,
+      }),
+      db.$count(videosTable, condition),
+    ]);
+    return { page, pageSize, total: total ?? 0, items };
   }
 
   async findByIdWithTags(id: number) {

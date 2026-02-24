@@ -1,19 +1,19 @@
 import { Elysia, t } from "elysia";
-import { tagTypesService } from "../services/tagTypes";
+import { distributorsService } from "../../services/distributors";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
-} from "../utils/pagination";
+} from "../../utils/pagination";
 
-export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
+export const distributorsRoutes = new Elysia({ prefix: "/distributors" })
   .get(
     "/",
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
       if (!pagination) return { message: "分页参数无效" };
-      return tagTypesService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
+      return distributorsService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
     },
     { query: paginationQuerySchema }
   )
@@ -22,7 +22,7 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
       if (!parsed) return { message: "搜索参数无效" };
-      return tagTypesService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
+      return distributorsService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
     },
     { query: searchQuerySchema }
   )
@@ -34,10 +34,10 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
         set.status = 400;
         return { message: "ID 无效" };
       }
-      const item = await tagTypesService.findById(id);
+      const item = await distributorsService.findById(id);
       if (!item) {
         set.status = 404;
-        return { message: "标签类型不存在" };
+        return { message: "发行商不存在" };
       }
       return item;
     },
@@ -46,10 +46,10 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
   .post(
     "/",
     async ({ body, set }) => {
-      const item = await tagTypesService.create({ name: body.name, icon: body.icon ?? null });
+      const item = await distributorsService.create({ name: body.name, domain: body.domain ?? null });
       if (!item) {
         set.status = 500;
-        return { message: "创建标签类型失败" };
+        return { message: "创建发行商失败" };
       }
       set.status = 201;
       return item;
@@ -57,7 +57,7 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
     {
       body: t.Object({
         name: t.String({ minLength: 1 }),
-        icon: t.Optional(t.String()),
+        domain: t.Optional(t.String()),
       }),
     }
   )
@@ -69,17 +69,17 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
         set.status = 400;
         return { message: "ID 无效" };
       }
-      if (!body.name && !body.icon) {
+      if (!body.name && body.domain === undefined) {
         set.status = 400;
         return { message: "没有可更新的字段" };
       }
-      const item = await tagTypesService.update(id, {
+      const item = await distributorsService.update(id, {
         name: body.name ?? undefined,
-        icon: body.icon ?? undefined,
+        domain: body.domain ?? undefined,
       });
       if (!item) {
         set.status = 404;
-        return { message: "标签类型不存在" };
+        return { message: "发行商不存在" };
       }
       return item;
     },
@@ -87,7 +87,7 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
       params: t.Object({ id: t.String() }),
       body: t.Object({
         name: t.Optional(t.String({ minLength: 1 })),
-        icon: t.Optional(t.String()),
+        domain: t.Optional(t.String()),
       }),
     }
   )
@@ -99,10 +99,10 @@ export const tagTypesRoutes = new Elysia({ prefix: "/tag-types" })
         set.status = 400;
         return { message: "ID 无效" };
       }
-      const item = await tagTypesService.delete(id);
+      const item = await distributorsService.delete(id);
       if (!item) {
         set.status = 404;
-        return { message: "标签类型不存在" };
+        return { message: "发行商不存在" };
       }
       return item;
     },

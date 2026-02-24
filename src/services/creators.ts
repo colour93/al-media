@@ -4,13 +4,16 @@ import { actorsTable } from "../entities/Actor";
 import { creatorsTable } from "../entities/Creator";
 import { creatorTagsTable } from "../entities/CreatorTag";
 import { videoCreatorsTable } from "../entities/VideoCreator";
+import { videosTable } from "../entities/Video";
 import type { PaginatedResult } from "../utils/pagination";
 
 export type CreatorPlatform = "onlyfans" | "justforfans" | "fansone" | "fansonly";
 
+const CREATOR_SORT_KEYS = ["id", "name", "type", "createdAt", "updatedAt"] as const;
+
 const creatorWithRelations = {
   actor: true,
-  creatorTags: { with: { tag: true } },
+  creatorTags: { with: { tag: { with: { tagType: true } } } },
 } as const;
 
 export type CreateCreatorInput = {
@@ -40,11 +43,27 @@ function toCreatorResponse(item: { creatorTags: Array<{ tag: unknown }> } & Reco
   };
 }
 
+function buildCreatorOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
+  const col = sortBy && CREATOR_SORT_KEYS.includes(sortBy as (typeof CREATOR_SORT_KEYS)[number])
+    ? sortBy
+    : "id";
+  const isAsc = sortOrder === "asc";
+  return (t: typeof creatorsTable, op: { asc: (c: unknown) => unknown; desc: (c: unknown) => unknown }) =>
+    isAsc ? [op.asc(t[col as keyof typeof t])] : [op.desc(t[col as keyof typeof t])];
+}
+
 class CreatorsService {
-  async findManyPaginated(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async findManyPaginated(
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
+    const orderByFn = buildCreatorOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.creatorsTable.findMany({
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.creatorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
       }),
@@ -53,12 +72,20 @@ class CreatorsService {
     return { page, pageSize, total: total ?? 0, items };
   }
 
-  async searchPaginated(keyword: string, page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async searchPaginated(
+    keyword: string,
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
     const condition = ilike(creatorsTable.name, `%${keyword}%`);
+    const orderByFn = buildCreatorOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.creatorsTable.findMany({
         where: condition,
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.creatorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
       }),
@@ -72,6 +99,33 @@ class CreatorsService {
       where: eq(creatorsTable.id, id),
       with: creatorWithRelations,
     });
+  }
+
+  async findVideosByCreatorId(
+    creatorId: number,
+    page: number,
+    pageSize: number,
+    offset: number
+  ): Promise<PaginatedResult<unknown>> {
+    const videoIds = await db
+      .select({ videoId: videoCreatorsTable.videoId })
+      .from(videoCreatorsTable)
+      .where(eq(videoCreatorsTable.creatorId, creatorId));
+    const ids = videoIds.map((v) => v.videoId);
+    if (ids.length === 0) {
+      return { page, pageSize, total: 0, items: [] };
+    }
+    const condition = inArray(videosTable.id, ids);
+    const [items, total] = await Promise.all([
+      db.query.videosTable.findMany({
+        where: condition,
+        orderBy: (t, { desc }) => [desc(t.id)],
+        limit: pageSize,
+        offset,
+      }),
+      db.$count(videosTable, condition),
+    ]);
+    return { page, pageSize, total: total ?? 0, items };
   }
 
   async findByIdWithTags(id: number) {

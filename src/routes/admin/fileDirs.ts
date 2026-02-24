@@ -1,11 +1,11 @@
 import { Elysia, t } from "elysia";
-import { fileDirsService } from "../services/fileDirs";
+import { fileDirsService } from "../../services/fileDirs";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
-} from "../utils/pagination";
+} from "../../utils/pagination";
 
 export const fileDirsRoutes = new Elysia({ prefix: "/file-dirs" })
   .get(

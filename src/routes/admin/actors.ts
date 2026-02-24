@@ -1,13 +1,13 @@
 import { Elysia, t } from "elysia";
-import { actorsService } from "../services/actors";
-import { tagsService } from "../services/tags";
-import { fileManager, FileCategory } from "../services/fileManager";
+import { actorsService } from "../../services/actors";
+import { tagsService } from "../../services/tags";
+import { fileManager, FileCategory } from "../../services/fileManager";
 import {
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
   searchQuerySchema,
-} from "../utils/pagination";
+} from "../../utils/pagination";
 
 const normalizeTagIds = (ids: number[]) => [...new Set(ids)];
 
@@ -17,7 +17,13 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
       if (!pagination) return { message: "分页参数无效" };
-      return actorsService.findManyPaginated(pagination.page, pagination.pageSize, pagination.offset);
+      return actorsService.findManyPaginated(
+        pagination.page,
+        pagination.pageSize,
+        pagination.offset,
+        pagination.sortBy,
+        pagination.sortOrder
+      );
     },
     { query: paginationQuerySchema }
   )
@@ -26,9 +32,38 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
       if (!parsed) return { message: "搜索参数无效" };
-      return actorsService.searchPaginated(parsed.keyword, parsed.page, parsed.pageSize, parsed.offset);
+      return actorsService.searchPaginated(
+        parsed.keyword,
+        parsed.page,
+        parsed.pageSize,
+        parsed.offset,
+        parsed.sortBy,
+        parsed.sortOrder
+      );
     },
     { query: searchQuerySchema }
+  )
+  .get(
+    "/:id/videos",
+    async ({ params, query, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      const pagination = parsePagination(query, set);
+      if (!pagination) return { message: "分页参数无效" };
+      return actorsService.findVideosByActorId(
+        id,
+        pagination.page,
+        pagination.pageSize,
+        pagination.offset
+      );
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      query: paginationQuerySchema,
+    }
   )
   .get(
     "/:id",

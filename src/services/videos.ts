@@ -1,4 +1,4 @@
-import { eq, ilike } from "drizzle-orm";
+import { eq, ilike, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { VideoFile } from "../entities/VideoFile";
 import { videosTable } from "../entities/Video";
@@ -44,7 +44,7 @@ const videoWithRelations = {
   videoActors: {
     with: {
       actor: {
-        with: { actorTags: { with: { tag: true } } },
+        with: { actorTags: { with: { tag: { with: { tagType: true } } } } },
       },
     },
   },
@@ -52,14 +52,14 @@ const videoWithRelations = {
     with: {
       creator: {
         with: {
-          actor: { with: { actorTags: { with: { tag: true } } } },
-          creatorTags: { with: { tag: true } },
+          actor: { with: { actorTags: { with: { tag: { with: { tagType: true } } } } } },
+          creatorTags: { with: { tag: { with: { tagType: true } } } },
         },
       },
     },
   },
   videoDistributors: { with: { distributor: true } },
-  videoTags: { with: { tag: true } },
+  videoTags: { with: { tag: { with: { tagType: true } } } },
 } as const;
 
 function collectTagsFromActor(actor: { actorTags?: Array<{ tag: unknown }> } | null): unknown[] {
@@ -121,6 +121,17 @@ function toVideoResponse(item: {
 
 function normalizeIds(ids: number[]) {
   return [...new Set(ids)];
+}
+
+const VIDEO_SORT_KEYS = ["id", "title", "createdAt", "updatedAt"] as const;
+
+function buildVideoOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
+  const col = sortBy && VIDEO_SORT_KEYS.includes(sortBy as (typeof VIDEO_SORT_KEYS)[number])
+    ? sortBy
+    : "id";
+  const isAsc = sortOrder === "asc";
+  return (t: typeof videosTable, op: { asc: (c: unknown) => unknown; desc: (c: unknown) => unknown }) =>
+    isAsc ? [op.asc(t[col as keyof typeof t])] : [op.desc(t[col as keyof typeof t])];
 }
 
 export type InferVideoInfoResult = {
@@ -318,10 +329,17 @@ class VideosService {
     };
   }
 
-  async findManyPaginated(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async findManyPaginated(
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
+    const orderByFn = buildVideoOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videosTable.findMany({
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.videosTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
         with: videoWithRelations,
@@ -332,12 +350,20 @@ class VideosService {
     return { page, pageSize, total: total ?? 0, items: shaped };
   }
 
-  async searchPaginated(keyword: string, page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+  async searchPaginated(
+    keyword: string,
+    page: number,
+    pageSize: number,
+    offset: number,
+    sortBy?: string,
+    sortOrder?: "asc" | "desc"
+  ): Promise<PaginatedResult<unknown>> {
     const condition = ilike(videosTable.title, `%${keyword}%`);
+    const orderByFn = buildVideoOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videosTable.findMany({
         where: condition,
-        orderBy: (t, { desc }) => [desc(t.id)],
+        orderBy: orderByFn as Parameters<typeof db.query.videosTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
         with: videoWithRelations,
@@ -360,6 +386,79 @@ class VideosService {
       ...shaped,
       videoFileUrl: videoFileId ? buildSignedVideoFileUrl(videoFileId) : null,
     };
+  }
+
+  async batchAddTags(videoIds: number[], tagIds: number[]): Promise<{ added: number }> {
+    if (videoIds.length === 0 || tagIds.length === 0) {
+      return { added: 0 };
+    }
+    const allTagsExist = await tagsService.idsExist(tagIds);
+    if (!allTagsExist) {
+      return { added: 0 };
+    }
+    let added = 0;
+    await db.transaction(async (tx) => {
+      for (const videoId of videoIds) {
+        const existing = await tx
+          .select({ tagId: videoTagsTable.tagId })
+          .from(videoTagsTable)
+          .where(eq(videoTagsTable.videoId, videoId));
+        const existingTagIds = new Set(existing.map((r) => r.tagId));
+        for (const tagId of tagIds) {
+          if (!existingTagIds.has(tagId)) {
+            await tx.insert(videoTagsTable).values({ videoId, tagId });
+            added++;
+          }
+        }
+      }
+    });
+    return { added };
+  }
+
+  async batchAddActors(videoIds: number[], actorIds: number[]): Promise<{ added: number }> {
+    if (videoIds.length === 0 || actorIds.length === 0) return { added: 0 };
+    const allActorsExist = await actorsService.idsExist(actorIds);
+    if (!allActorsExist) return { added: 0 };
+    let added = 0;
+    await db.transaction(async (tx) => {
+      for (const videoId of videoIds) {
+        const existing = await tx
+          .select({ actorId: videoActorsTable.actorId })
+          .from(videoActorsTable)
+          .where(eq(videoActorsTable.videoId, videoId));
+        const existingActorIds = new Set(existing.map((r) => r.actorId));
+        for (const actorId of actorIds) {
+          if (!existingActorIds.has(actorId)) {
+            await tx.insert(videoActorsTable).values({ videoId, actorId });
+            added++;
+          }
+        }
+      }
+    });
+    return { added };
+  }
+
+  async batchAddCreators(videoIds: number[], creatorIds: number[]): Promise<{ added: number }> {
+    if (videoIds.length === 0 || creatorIds.length === 0) return { added: 0 };
+    const allCreatorsExist = await creatorsService.idsExist(creatorIds);
+    if (!allCreatorsExist) return { added: 0 };
+    let added = 0;
+    await db.transaction(async (tx) => {
+      for (const videoId of videoIds) {
+        const existing = await tx
+          .select({ creatorId: videoCreatorsTable.creatorId })
+          .from(videoCreatorsTable)
+          .where(eq(videoCreatorsTable.videoId, videoId));
+        const existingCreatorIds = new Set(existing.map((r) => r.creatorId));
+        for (const creatorId of creatorIds) {
+          if (!existingCreatorIds.has(creatorId)) {
+            await tx.insert(videoCreatorsTable).values({ videoId, creatorId });
+            added++;
+          }
+        }
+      }
+    });
+    return { added };
   }
 
   /** 获取视频关联的 video file id（通过 video_unique_contents） */
@@ -626,13 +725,19 @@ class VideosService {
     videoFile: VideoFile,
     options?: { autoExtract?: boolean }
   ) {
-    // 查询 uniqueId 是否已经存在
+    // 查询 uniqueId 是否已经存在（仅查 videoId，避免触发深层关联的大型 lateral join）
     const content = await db.query.videoUniqueContentsTable.findFirst({
       where: eq(videoUniqueContentsTable.uniqueId, videoFile.uniqueId),
-      with: { video: { with: videoWithRelations } },
+      columns: { videoId: true },
     });
-    if (content?.video) {
-      return toVideoResponse(content.video as Parameters<typeof toVideoResponse>[0]);
+    if (content) {
+      const video = await db.query.videosTable.findFirst({
+        where: eq(videosTable.id, content.videoId),
+        with: videoWithRelations,
+      });
+      if (video) {
+        return toVideoResponse(video as Parameters<typeof toVideoResponse>[0]);
+      }
     }
 
     const autoExtract = options?.autoExtract ?? true;
