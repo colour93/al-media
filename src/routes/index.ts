@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { adminRoutes } from "./admin";
+import { commonRoutes } from "./common";
 import { ErrorCode } from "../types/error";
 import { createLogger } from "../utils/logger";
 import { BaseResponse } from "../types/response";
@@ -99,4 +100,5 @@ export const appRoutes = new Elysia({ prefix: "/api" })
     };
   })
   .get("/health", () => ({ success: true, status: "ok" }))
-  .use(adminRoutes);
+  .use(adminRoutes)
+  .use(commonRoutes);

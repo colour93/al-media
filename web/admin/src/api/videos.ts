@@ -61,6 +61,10 @@ export async function updateVideo(
     creators?: number[];
     distributors?: number[];
     tags?: number[];
+    isFeatured?: boolean;
+    isBanner?: boolean;
+    bannerOrder?: number | null;
+    recommendedOrder?: number | null;
   }
 ): Promise<Video> {
   return patch<Video>(`${BASE}/${id}`, data);

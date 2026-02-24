@@ -85,6 +85,10 @@ export interface Video {
   id: number;
   title: string;
   thumbnailKey: string | null;
+  isFeatured?: boolean;
+  isBanner?: boolean;
+  bannerOrder?: number | null;
+  recommendedOrder?: number | null;
   createdAt: string;
   updatedAt: string;
 }

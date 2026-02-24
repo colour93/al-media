@@ -1,0 +1,177 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { useMemo } from 'react';
+import {
+  Box,
+  Typography,
+  CircularProgress,
+  useTheme,
+  useMediaQuery,
+  Paper,
+} from '@mui/material';
+import { MUIPlayer } from '../components/MUIPlayer/MUIPlayer';
+import { VideoSidebarCard } from '../components/VideoSidebarCard/VideoSidebarCard';
+import { EntityPreview } from '../components/EntityPreview/EntityPreview';
+import { useVideo } from '../hooks/useVideos';
+import { useRecommended } from '../hooks/useVideos';
+import { useLatest } from '../hooks/useVideos';
+
+export const Route = createFileRoute('/videos/$id')({
+  component: VideoDetailPage,
+});
+
+/** 确保视频 URL 可播放（相对路径需转为绝对 URL） */
+function toPlayableUrl(url: string): string {
+  if (typeof window === 'undefined') return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/')) return `${window.location.origin}${url}`;
+  return url;
+}
+
+function formatDuration(seconds?: number): string {
+  if (seconds == null || seconds < 0) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatFileSize(bytes?: number): string {
+  if (bytes == null || bytes < 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function VideoDetailPage() {
+  const { id } = Route.useParams();
+  const videoId = Number(id);
+  const isValidId = Number.isInteger(videoId);
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
+
+  const { data: video, isLoading } = useVideo(isValidId ? videoId : null);
+  const { data: recommended } = useRecommended();
+  const { data: latestData } = useLatest(1, 12);
+
+  const sidebarVideos = useMemo(() => {
+    const rec = recommended ?? [];
+    const lat = latestData?.items ?? [];
+    const combined = [...rec];
+    for (const v of lat) {
+      if (!combined.some((c) => c.id === v.id)) combined.push(v);
+    }
+    return combined.filter((v) => v.id !== videoId).slice(0, 12);
+  }, [recommended, latestData, videoId]);
+
+  const playUrl = useMemo(
+    () => (video?.videoFileUrl ? toPlayableUrl(video.videoFileUrl) : ''),
+    [video]
+  );
+
+  if (!isValidId) {
+    return (
+      <Box sx={{ py: 4 }}>
+        <Typography color="text.secondary">视频不存在</Typography>
+      </Box>
+    );
+  }
+  if (isLoading || !video) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  const metaParts = [formatDuration(video.videoDuration), formatFileSize(video.fileSize)].filter(Boolean).join(' · ');
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: isDesktop ? 'row' : 'column',
+        gap: 2,
+        alignItems: 'flex-start',
+      }}
+    >
+      <Box sx={{ flex: isDesktop ? '1 1 0' : undefined, minWidth: 0, width: '100%' }}>
+        <Box sx={{ maxWidth: 960, mx: 'auto' }}>
+          {playUrl && (
+            <Box sx={{ mb: 2 }}>
+              <MUIPlayer url={playUrl} fullWidth />
+            </Box>
+          )}
+          <Typography variant="h5" fontWeight={600} gutterBottom>
+            {video.title}
+          </Typography>
+          {metaParts && (
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              {metaParts}
+            </Typography>
+          )}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+            {video.tags?.map((t) => (
+              <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />
+            ))}
+            {video.distributors?.length ? (
+              <Typography variant="body2" color="text.secondary">
+                发行: {video.distributors.map((d) => d.name).join('、')}
+              </Typography>
+            ) : null}
+          </Box>
+        </Box>
+      </Box>
+      {(video.creators?.length || video.actors?.length || sidebarVideos.length > 0) && (
+        <Box
+          sx={{
+            width: isDesktop ? 360 : '100%',
+            flexShrink: 0,
+            ...(isDesktop ? {} : { maxWidth: 480, mx: 'auto' }),
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          {video.creators?.length ? (
+          <Paper variant="outlined" sx={{ p: 1.5 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              创作者
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {video.creators.map((c) => (
+                <EntityPreview key={c.id} entityType="creator" entity={c} size="sm" />
+              ))}
+            </Box>
+          </Paper>
+        ) : null}
+        {video.actors?.length ? (
+          <Paper variant="outlined" sx={{ p: 1.5 }}>
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              演员
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1.5, justifyContent: 'flex-start' }}>
+              {video.actors.map((a) => (
+                <EntityPreview key={a.id} entityType="actor" entity={a} size="md" layout="card" />
+              ))}
+            </Box>
+          </Paper>
+        ) : null}
+        {sidebarVideos.length > 0 ? (
+          <Box>
+            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+              推荐
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {sidebarVideos.map((v) => (
+                <VideoSidebarCard key={v.id} video={v} />
+              ))}
+            </Box>
+          </Box>
+        ) : null}
+        </Box>
+      )}
+    </Box>
+  );
+}

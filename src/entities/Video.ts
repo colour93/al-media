@@ -1,4 +1,4 @@
-import { integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { videoFilesTable } from "./VideoFile";
 import { videoDistributorsTable } from "./VideoDistributor";
@@ -11,6 +11,10 @@ export const videosTable = pgTable("videos", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   title: varchar().notNull(),
   thumbnailKey: varchar(),
+  isFeatured: boolean().notNull().default(false),
+  isBanner: boolean().notNull().default(false),
+  bannerOrder: integer(),
+  recommendedOrder: integer(),
   createdAt: timestamp().notNull().defaultNow(),
   updatedAt: timestamp().notNull().defaultNow(),
 });

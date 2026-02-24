@@ -33,3 +33,10 @@ export function buildSignedVideoFileUrl(videoFileId: number): string {
   const { sign, exp } = createVideoFileSign(videoFileId);
   return `${baseUrl}${apiPrefix}/admin/file/video-stream/${videoFileId}?sign=${sign}&exp=${exp}`;
 }
+
+/** 生成带签名的视频文件 URL（common file 路由在 /api/common/file 下，供 C 端使用） */
+export function buildCommonSignedVideoFileUrl(videoFileId: number, pathOnly = false): string {
+  const { sign, exp } = createVideoFileSign(videoFileId);
+  const path = `${apiPrefix}/common/file/video-stream/${videoFileId}?sign=${sign}&exp=${exp}`;
+  return pathOnly ? path : `${baseUrl}${path}`;
+}

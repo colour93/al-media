@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { actorsService } from "../../services/actors";
+import { creatorsService } from "../../services/creators";
 import { tagsService } from "../../services/tags";
 import { fileManager, FileCategory } from "../../services/fileManager";
 import {
@@ -42,6 +43,18 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
       );
     },
     { query: searchQuerySchema }
+  )
+  .get(
+    "/:id/creators",
+    async ({ params, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      return creatorsService.findCreatorsByActorId(id);
+    },
+    { params: t.Object({ id: t.String() }) }
   )
   .get(
     "/:id/videos",

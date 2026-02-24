@@ -14,6 +14,8 @@ import {
   DialogActions,
   Avatar,
   Chip,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Play, Tags, Sparkles } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
@@ -93,6 +95,10 @@ function VideosPage() {
   const [formCreatorIds, setFormCreatorIds] = useState<number[]>([]);
   const [formDistributorIds, setFormDistributorIds] = useState<number[]>([]);
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [formIsFeatured, setFormIsFeatured] = useState(false);
+  const [formIsBanner, setFormIsBanner] = useState(false);
+  const [formBannerOrder, setFormBannerOrder] = useState<string>('');
+  const [formRecommendedOrder, setFormRecommendedOrder] = useState<string>('');
 
   const actors = useMemo(() => {
     const seen = new Set<number>();
@@ -119,6 +125,10 @@ function VideosPage() {
     setFormCreatorIds([]);
     setFormDistributorIds([]);
     setFormTagIds([]);
+    setFormIsFeatured(false);
+    setFormIsBanner(false);
+    setFormBannerOrder('');
+    setFormRecommendedOrder('');
     setFormOpen(true);
   };
 
@@ -130,6 +140,10 @@ function VideosPage() {
     setFormCreatorIds(row.creators?.map((c) => c.id) ?? []);
     setFormDistributorIds(row.distributors?.map((d) => d.id) ?? []);
     setFormTagIds(row.tags?.map((t) => t.id) ?? []);
+    setFormIsFeatured(row.isFeatured ?? false);
+    setFormIsBanner(row.isBanner ?? false);
+    setFormBannerOrder(row.bannerOrder != null ? String(row.bannerOrder) : '');
+    setFormRecommendedOrder(row.recommendedOrder != null ? String(row.recommendedOrder) : '');
     setFormOpen(true);
   };
 
@@ -139,6 +153,10 @@ function VideosPage() {
       setFormCreatorIds(videoDetail.creators?.map((c) => c.id) ?? []);
       setFormDistributorIds(videoDetail.distributors?.map((d) => d.id) ?? []);
       setFormTagIds(videoDetail.tags?.map((t) => t.id) ?? []);
+      setFormIsFeatured(videoDetail.isFeatured ?? false);
+      setFormIsBanner(videoDetail.isBanner ?? false);
+      setFormBannerOrder(videoDetail.bannerOrder != null ? String(videoDetail.bannerOrder) : '');
+      setFormRecommendedOrder(videoDetail.recommendedOrder != null ? String(videoDetail.recommendedOrder) : '');
     }
   }, [videoDetail]);
 
@@ -161,7 +179,18 @@ function VideosPage() {
   };
 
   const handleFormSubmit = async () => {
-    const payload = {
+    const payload: {
+      title: string;
+      thumbnailKey?: string;
+      actors?: number[];
+      creators?: number[];
+      distributors?: number[];
+      tags?: number[];
+      isFeatured?: boolean;
+      isBanner?: boolean;
+      bannerOrder?: number | null;
+      recommendedOrder?: number | null;
+    } = {
       title: formTitle,
       thumbnailKey: formThumbnailKey ?? undefined,
       actors: formActorIds.length ? formActorIds : undefined,
@@ -170,6 +199,10 @@ function VideosPage() {
       tags: formTagIds.length ? formTagIds : undefined,
     };
     if (editing) {
+      payload.isFeatured = formIsFeatured;
+      payload.isBanner = formIsBanner;
+      payload.bannerOrder = formBannerOrder === '' ? null : (Number(formBannerOrder) || null);
+      payload.recommendedOrder = formRecommendedOrder === '' ? null : (Number(formRecommendedOrder) || null);
       await updateMut.mutateAsync({ id: editing.id, data: payload });
     } else {
       await createMut.mutateAsync(payload);
@@ -257,6 +290,20 @@ function VideosPage() {
         ),
     },
     { id: 'title', label: '标题', render: (r) => r.title, sortable: true, sortKey: 'title' },
+    {
+      id: 'isFeatured',
+      label: '推荐',
+      width: 60,
+      align: 'center',
+      render: (r) => (r.isFeatured ? '✓' : '-'),
+    },
+    {
+      id: 'isBanner',
+      label: '轮播',
+      width: 60,
+      align: 'center',
+      render: (r) => (r.isBanner ? '✓' : '-'),
+    },
     {
       id: 'actors',
       label: '演员',
@@ -430,6 +477,55 @@ function VideosPage() {
             fullWidth
             autoFocus
           />
+          {editing && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              <Typography variant="subtitle2" color="text.secondary">
+                C 端展示
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formIsFeatured}
+                      onChange={(e) => setFormIsFeatured(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label="推荐"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formIsBanner}
+                      onChange={(e) => setFormIsBanner(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label="轮播"
+                />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  label="推荐排序"
+                  type="number"
+                  size="small"
+                  value={formRecommendedOrder}
+                  onChange={(e) => setFormRecommendedOrder(e.target.value)}
+                  placeholder="数字越小越靠前"
+                  sx={{ width: 140 }}
+                />
+                <TextField
+                  label="轮播排序"
+                  type="number"
+                  size="small"
+                  value={formBannerOrder}
+                  onChange={(e) => setFormBannerOrder(e.target.value)}
+                  placeholder="数字越小越靠前"
+                  sx={{ width: 140 }}
+                />
+              </Box>
+            </Box>
+          )}
           <Box>
             <Typography variant="body2" color="text.secondary" gutterBottom>
               缩略图

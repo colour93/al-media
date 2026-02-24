@@ -101,6 +101,15 @@ class CreatorsService {
     });
   }
 
+  async findCreatorsByActorId(actorId: number): Promise<unknown[]> {
+    const items = await db.query.creatorsTable.findMany({
+      where: eq(creatorsTable.actorId, actorId),
+      with: creatorWithRelations,
+      orderBy: (t, { desc }) => [desc(t.id)],
+    });
+    return items.map((it) => toCreatorResponse(it as Parameters<typeof toCreatorResponse>[0]));
+  }
+
   async findVideosByCreatorId(
     creatorId: number,
     page: number,

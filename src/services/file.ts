@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 import { fileManager, FileCategory } from "./fileManager";
 import { videoFileManager } from "./videoFileManager";
-import { buildSignedVideoFileUrl, verifyVideoFileSign } from "../utils/videoFileSign";
+import { buildCommonSignedVideoFileUrl, buildSignedVideoFileUrl, verifyVideoFileSign } from "../utils/videoFileSign";
 
 const EXT_MIME: Record<string, string> = {
   jpg: "image/jpeg",
@@ -114,7 +114,7 @@ class FileService {
     return { success: true };
   }
 
-  async getVideoSignUrl(videoFileId: number): Promise<VideoSignResult | VideoSignError> {
+  async getVideoSignUrl(videoFileId: number, options?: { forCommon?: boolean; pathOnly?: boolean }): Promise<VideoSignResult | VideoSignError> {
     if (!Number.isInteger(videoFileId)) {
       return { error: "视频文件 ID 无效" };
     }
@@ -122,7 +122,9 @@ class FileService {
     if (!path) {
       return { error: "视频文件不存在" };
     }
-    const url = buildSignedVideoFileUrl(videoFileId);
+    const url = options?.forCommon
+      ? buildCommonSignedVideoFileUrl(videoFileId, options.pathOnly)
+      : buildSignedVideoFileUrl(videoFileId);
     return { url };
   }
 

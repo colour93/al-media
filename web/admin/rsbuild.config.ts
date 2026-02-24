@@ -9,7 +9,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:39994'
       }
-    }
+    },
+    port: 39995,
   },
   html: {
     title: '视频平台管理',

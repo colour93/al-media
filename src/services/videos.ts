@@ -20,7 +20,7 @@ import { tagsService } from "./tags";
 import type { PaginatedResult } from "../utils/pagination";
 import OpenAI from "openai";
 import { createLogger } from "../utils/logger";
-import { buildSignedVideoFileUrl } from "../utils/videoFileSign";
+import { buildCommonSignedVideoFileUrl, buildSignedVideoFileUrl } from "../utils/videoFileSign";
 
 export type CreateVideoInput = {
   title: string;
@@ -38,6 +38,10 @@ export type UpdateVideoInput = {
   creators?: number[];
   distributors?: number[];
   tags?: number[];
+  isFeatured?: boolean;
+  isBanner?: boolean;
+  bannerOrder?: number | null;
+  recommendedOrder?: number | null;
 };
 
 const videoWithRelations = {
@@ -347,7 +351,12 @@ class VideosService {
       db.$count(videosTable),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    return { page, pageSize, total: total ?? 0, items: shaped };
+    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
+    const enriched = shaped.map((s) => {
+      const meta = metaMap.get((s as { id: number }).id);
+      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+    });
+    return { page, pageSize, total: total ?? 0, items: enriched };
   }
 
   async searchPaginated(
@@ -371,21 +380,83 @@ class VideosService {
       db.$count(videosTable, condition),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    return { page, pageSize, total: total ?? 0, items: shaped };
+    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
+    const enriched = shaped.map((s) => {
+      const meta = metaMap.get((s as { id: number }).id);
+      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+    });
+    return { page, pageSize, total: total ?? 0, items: enriched };
   }
 
-  async findById(id: number) {
+  async findById(id: number, options?: { useCommonUrl?: boolean; pathOnly?: boolean }) {
     const item = await db.query.videosTable.findFirst({
       where: eq(videosTable.id, id),
       with: videoWithRelations,
     });
     if (!item) return null;
     const shaped = toVideoResponse(item as Parameters<typeof toVideoResponse>[0]);
-    const videoFileId = await this.getVideoFileIdForVideo(id);
+    const [videoFileId, metaMap] = await Promise.all([
+      this.getVideoFileIdForVideo(id),
+      this.getVideoFileMetaMap([id]),
+    ]);
+    const videoFileUrl = videoFileId
+      ? options?.useCommonUrl
+        ? buildCommonSignedVideoFileUrl(videoFileId, options.pathOnly ?? false)
+        : buildSignedVideoFileUrl(videoFileId)
+      : null;
+    const meta = metaMap.get(id);
     return {
       ...shaped,
-      videoFileUrl: videoFileId ? buildSignedVideoFileUrl(videoFileId) : null,
+      videoFileUrl,
+      ...(meta && { videoDuration: meta.videoDuration, fileSize: meta.fileSize }),
     };
+  }
+
+  async findRecommended() {
+    const items = await db.query.videosTable.findMany({
+      where: eq(videosTable.isFeatured, true),
+      orderBy: (t, { asc }) => [asc(t.recommendedOrder), asc(t.id)],
+      with: videoWithRelations,
+    });
+    const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
+    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
+    return shaped.map((s) => {
+      const meta = metaMap.get((s as { id: number }).id);
+      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+    });
+  }
+
+  async findBanner() {
+    const items = await db.query.videosTable.findMany({
+      where: eq(videosTable.isBanner, true),
+      orderBy: (t, { asc }) => [asc(t.bannerOrder), asc(t.id)],
+      with: videoWithRelations,
+    });
+    const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
+    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
+    return shaped.map((s) => {
+      const meta = metaMap.get((s as { id: number }).id);
+      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+    });
+  }
+
+  async findLatest(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
+    const [items, total] = await Promise.all([
+      db.query.videosTable.findMany({
+        orderBy: (t, { desc }) => [desc(t.createdAt)],
+        limit: pageSize,
+        offset,
+        with: videoWithRelations,
+      }),
+      db.$count(videosTable),
+    ]);
+    const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
+    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
+    const enriched = shaped.map((s) => {
+      const meta = metaMap.get((s as { id: number }).id);
+      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+    });
+    return { page, pageSize, total: total ?? 0, items: enriched };
   }
 
   async batchAddTags(videoIds: number[], tagIds: number[]): Promise<{ added: number }> {
@@ -475,6 +546,30 @@ class VideosService {
     return videoFile?.id ?? null;
   }
 
+  /** 批量获取视频的 video_duration、file_size */
+  async getVideoFileMetaMap(
+    videoIds: number[]
+  ): Promise<Map<number, { videoDuration: number; fileSize: number }>> {
+    if (videoIds.length === 0) return new Map();
+    const rows = await db
+      .select({
+        videoId: videoUniqueContentsTable.videoId,
+        videoDuration: videoFilesTable.videoDuration,
+        fileSize: videoFilesTable.fileSize,
+      })
+      .from(videoUniqueContentsTable)
+      .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
+      .where(inArray(videoUniqueContentsTable.videoId, videoIds));
+    const map = new Map<number, { videoDuration: number; fileSize: number }>();
+    for (const row of rows) {
+      map.set(row.videoId, {
+        videoDuration: Number(row.videoDuration),
+        fileSize: Number(row.fileSize),
+      });
+    }
+    return map;
+  }
+
   async create(data: CreateVideoInput) {
     const actorIds = normalizeIds(data.actors ?? []);
     const creatorIds = normalizeIds(data.creators ?? []);
@@ -542,13 +637,19 @@ class VideosService {
 
     let videoNotFound = false;
     const item = await db.transaction(async (tx) => {
+      const updateFields: Record<string, unknown> = {
+        title: data.title ?? undefined,
+        thumbnailKey: data.thumbnailKey ?? undefined,
+        updatedAt: new Date(),
+      };
+      if (data.isFeatured !== undefined) updateFields.isFeatured = data.isFeatured;
+      if (data.isBanner !== undefined) updateFields.isBanner = data.isBanner;
+      if (data.bannerOrder !== undefined) updateFields.bannerOrder = data.bannerOrder;
+      if (data.recommendedOrder !== undefined) updateFields.recommendedOrder = data.recommendedOrder;
+
       const rows = await tx
         .update(videosTable)
-        .set({
-          title: data.title ?? undefined,
-          thumbnailKey: data.thumbnailKey ?? undefined,
-          updatedAt: new Date(),
-        })
+        .set(updateFields as Record<string, never>)
         .where(eq(videosTable.id, id))
         .returning();
       if (!rows[0]) {

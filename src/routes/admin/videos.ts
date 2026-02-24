@@ -110,7 +110,11 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         body.actors === undefined &&
         body.creators === undefined &&
         body.distributors === undefined &&
-        body.tags === undefined
+        body.tags === undefined &&
+        body.isFeatured === undefined &&
+        body.isBanner === undefined &&
+        body.bannerOrder === undefined &&
+        body.recommendedOrder === undefined
       ) {
         set.status = 400;
         return { message: "没有可更新的字段" };
@@ -130,6 +134,10 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         creators: body.creators,
         distributors: body.distributors,
         tags: body.tags,
+        isFeatured: body.isFeatured,
+        isBanner: body.isBanner,
+        bannerOrder: body.bannerOrder,
+        recommendedOrder: body.recommendedOrder,
       });
       if ("error" in result) {
         set.status = result.error === "视频不存在" ? 404 : 400;
@@ -146,6 +154,10 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         creators: t.Optional(t.Array(t.Integer())),
         distributors: t.Optional(t.Array(t.Integer())),
         tags: t.Optional(t.Array(t.Integer())),
+        isFeatured: t.Optional(t.Boolean()),
+        isBanner: t.Optional(t.Boolean()),
+        bannerOrder: t.Optional(t.Nullable(t.Integer())),
+        recommendedOrder: t.Optional(t.Nullable(t.Integer())),
       }),
     }
   )
