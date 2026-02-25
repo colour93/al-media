@@ -18,7 +18,7 @@ const logger = createLogger("auth");
 
 const SESSION_COOKIE = "al_media_session";
 const PKCE_COOKIE = "_oidc_pkce";
-const ADMIN_APP_URL = process.env.ADMIN_APP_URL ?? "http://localhost:39995";
+const ADMIN_APP_URL = process.env.ADMIN_APP_URL ?? "http://localhost:39995/admin";
 
 function getCookieValue(cookieHeader: string | null, name: string): string | undefined {
   if (!cookieHeader) return undefined;

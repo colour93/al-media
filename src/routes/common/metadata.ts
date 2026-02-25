@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 
-const ADMIN_APP_URL = process.env.ADMIN_APP_URL ?? "http://localhost:39995";
+const ADMIN_APP_URL = process.env.ADMIN_APP_URL ?? "http://localhost:39995/admin";
 
 export const commonMetadataRoutes = new Elysia()
   .get("/metadata", () => ({

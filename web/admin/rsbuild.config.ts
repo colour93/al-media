@@ -5,6 +5,7 @@ import { tanstackRouter } from '@tanstack/router-plugin/rspack'
 // Docs: https://rsbuild.rs/config/
 export default defineConfig({
   server: {
+    base: '/admin',
     proxy: {
       '/api': {
         target: 'http://localhost:39994'

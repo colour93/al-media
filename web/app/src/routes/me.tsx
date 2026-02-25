@@ -41,6 +41,12 @@ function MePage() {
 
   const displayName = user.name || user.email || '用户';
   const showAdminLink = canAccessAdmin(user.role) && metadata?.adminPanelUrl;
+  let adminSameOrigin = false;
+  if (showAdminLink && metadata) {
+    try {
+      adminSameOrigin = new URL(metadata.adminPanelUrl).origin === window.location.origin;
+    } catch {}
+  }
 
   return (
     <Box>
@@ -68,8 +74,7 @@ function MePage() {
                 variant="outlined"
                 startIcon={<ExternalLink size={18} />}
                 href={metadata!.adminPanelUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+                {...(adminSameOrigin ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
               >
                 管理面板
               </Button>
