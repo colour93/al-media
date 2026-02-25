@@ -1,12 +1,14 @@
 import { Elysia } from "elysia";
+import * as jose from "jose";
 import * as oidc from "openid-client";
 import {
   getOidcConfig,
   buildRedirectUri,
-  resolveRoleForNewUser,
+  getRoleFromClaims,
   createSessionToken,
   verifySessionToken,
   canAccessAdminByRole,
+  canAccessCommonByRole,
   isAuthConfigured,
 } from "../services/auth";
 import { usersService } from "../services/users";
@@ -61,7 +63,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
 
     const params: Record<string, string> = {
       redirect_uri: redirectUri,
-      scope: "openid email profile",
+      scope: "openid email profile roles",
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
       state,
@@ -129,34 +131,47 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
     let identifier: string;
     let email: string | undefined;
     let name: string | undefined;
+    let claims: Record<string, unknown>;
     try {
       tokens = await oidc.authorizationCodeGrant(config, callbackUrl, {
         pkceCodeVerifier: pkce.codeVerifier,
         expectedState: state,
         idTokenExpected: true,
       });
-      const claims = (tokens as { claims?(): Record<string, unknown> }).claims?.();
-      const sub = (claims?.sub ?? "") as string;
-      email = (claims?.email ?? claims?.preferred_username) as string | undefined;
-      name = (claims?.name ?? claims?.preferred_username) as string | undefined;
+      const idClaims = (tokens as { claims?(): Record<string, unknown> }).claims?.() ?? {};
+      const sub = (idClaims.sub ?? "") as string;
+      email = (idClaims.email ?? idClaims.preferred_username) as string | undefined;
+      name = (idClaims.name ?? idClaims.preferred_username) as string | undefined;
       if (!email && !sub) {
         throw new Error("ID Token 缺少 email 或 sub");
       }
       identifier = (email ?? sub).trim();
+
+      const accessToken = (tokens as { access_token?: string }).access_token;
+      claims = accessToken
+        ? (jose.decodeJwt(accessToken) as Record<string, unknown>)
+        : idClaims;
     } catch (err) {
       logger.error(err, "OIDC token exchange 失败");
       return redirect(`${ADMIN_APP_URL}/login?error=token_exchange_failed`, 302);
     }
 
-    const role = await resolveRoleForNewUser(identifier);
-    if (role === null || !canAccessAdminByRole(role)) {
-      return redirect(`${ADMIN_APP_URL}/login?error=unauthorized`, 302);
+    const role = getRoleFromClaims(claims);
+    if (role === null) {
+      const errUrl = pkce.returnTo === "app" ? `${APP_URL}/login` : `${ADMIN_APP_URL}/login`;
+      return redirect(`${errUrl}?error=unauthorized`, 302);
+    }
+    const isApp = pkce.returnTo === "app";
+    const hasAccess = isApp ? canAccessCommonByRole(role) : canAccessAdminByRole(role);
+    if (!hasAccess) {
+      const errUrl = isApp ? `${APP_URL}/login` : `${ADMIN_APP_URL}/login`;
+      return redirect(`${errUrl}?error=unauthorized`, 302);
     }
 
     const user = await usersService.createOrUpdateFromOidc(identifier, role, { email: email ?? undefined, name });
     const token = await createSessionToken({
       userId: user.id,
-      role: user.role as "owner" | "admin",
+      role: user.role as "owner" | "admin" | "member",
       sub: identifier,
     });
 
@@ -179,7 +194,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
       return { success: false, data: null };
     }
     const user = await usersService.findById(session.userId);
-    if (!user || !canAccessAdminByRole(user.role as "owner" | "admin")) {
+    if (!user) {
       return { success: false, data: null };
     }
     return {

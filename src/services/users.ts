@@ -2,12 +2,17 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { usersTable, type NewUser, type User } from "../entities/User";
 
-export type UserRole = "owner" | "admin";
+export type UserRole = "owner" | "admin" | "member";
 
 const ADMIN_ROLES: UserRole[] = ["owner", "admin"];
+const COMMON_ROLES: UserRole[] = ["owner", "admin", "member"];
 
 export function canAccessAdmin(role: UserRole): boolean {
   return ADMIN_ROLES.includes(role);
+}
+
+export function canAccessCommon(role: UserRole): boolean {
+  return COMMON_ROLES.includes(role);
 }
 
 class UsersService {
@@ -35,6 +40,7 @@ class UsersService {
         .set({
           email: props?.email ?? existing.email,
           name: props?.name ?? existing.name,
+          role,
           updatedAt: new Date(),
         })
         .where(eq(usersTable.id, existing.id))

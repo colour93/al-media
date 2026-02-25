@@ -1,9 +1,10 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { Box, Paper, Typography, Button } from '@mui/material';
-import { User, LogOut } from 'lucide-react';
+import { User, LogOut, ExternalLink } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { fetchAuthMe, logout } from '../api/auth';
+import { fetchCommonMetadata } from '../api/metadata';
 
 export const Route = createFileRoute('/me')({
   beforeLoad: async () => {
@@ -15,12 +16,19 @@ export const Route = createFileRoute('/me')({
   component: MePage,
 });
 
+const canAccessAdmin = (role: string) => role === 'owner' || role === 'admin';
+
 function MePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: user } = useQuery({
     queryKey: ['authMe'],
     queryFn: fetchAuthMe,
+  });
+  const { data: metadata } = useQuery({
+    queryKey: ['commonMetadata'],
+    queryFn: fetchCommonMetadata,
+    enabled: !!user && canAccessAdmin(user.role),
   });
 
   const handleLogout = async () => {
@@ -32,6 +40,7 @@ function MePage() {
   if (!user) return null;
 
   const displayName = user.name || user.email || '用户';
+  const showAdminLink = canAccessAdmin(user.role) && metadata?.adminPanelUrl;
 
   return (
     <Box>
@@ -53,9 +62,22 @@ function MePage() {
               )}
             </Box>
           </Box>
-          <Button variant="outlined" color="error" startIcon={<LogOut size={18} />} onClick={handleLogout}>
-            退出登录
-          </Button>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {showAdminLink && (
+              <Button
+                variant="outlined"
+                startIcon={<ExternalLink size={18} />}
+                href={metadata!.adminPanelUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                管理面板
+              </Button>
+            )}
+            <Button variant="outlined" color="error" startIcon={<LogOut size={18} />} onClick={handleLogout}>
+              退出登录
+            </Button>
+          </Box>
         </Box>
       </Paper>
     </Box>

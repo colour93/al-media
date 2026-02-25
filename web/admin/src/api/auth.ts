@@ -4,7 +4,7 @@ export interface AuthUser {
   id: number;
   email: string | null;
   name: string | null;
-  role: 'owner' | 'admin';
+  role: 'owner' | 'admin' | 'member';
 }
 
 export interface AuthMeResponse {

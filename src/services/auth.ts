@@ -1,17 +1,13 @@
 import * as oidc from "openid-client";
 import * as jose from "jose";
 import type { UserRole } from "./users";
-import { usersService, canAccessAdmin } from "./users";
+import { usersService, canAccessAdmin, canAccessCommon } from "./users";
 
 const OIDC_ISSUER = process.env.OIDC_ISSUER;
 const OIDC_CLIENT_ID = process.env.OIDC_CLIENT_ID;
 const OIDC_CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET;
 const OIDC_REDIRECT_URI = process.env.OIDC_REDIRECT_URI;
-const OIDC_OWNER_EMAIL = process.env.OIDC_OWNER_EMAIL; // 可选：指定 owner 的邮箱
-const OIDC_ADMIN_EMAILS = (process.env.OIDC_ADMIN_EMAILS ?? "")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
+const OIDC_ROLE_CLAIM = process.env.OIDC_ROLE_CLAIM ?? "realm_access.roles"; // 从 Access Token 的哪个 claim 读取角色（Keycloak 的 realm_access.roles 在 Access Token 中）
 const JWT_SECRET = process.env.JWT_SECRET;
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN;
 const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:39994";
@@ -46,21 +42,36 @@ export function buildRedirectUri(): string {
   return OIDC_REDIRECT_URI ?? `${API_BASE_URL}/api/auth/oidc/callback`;
 }
 
-/** 根据邮箱决定用户角色：owner > 环境变量配置的 admin > 首个登录为 owner，否则无权限 */
-function resolveRole(email: string): UserRole | null {
-  const e = email.toLowerCase().trim();
-  if (OIDC_OWNER_EMAIL && e === OIDC_OWNER_EMAIL.toLowerCase()) return "owner";
-  if (OIDC_ADMIN_EMAILS.includes(e)) return "admin";
-  return null;
+const VALID_ROLES: UserRole[] = ["owner", "admin", "member"];
+const ROLE_PRIORITY: Record<UserRole, number> = { owner: 3, admin: 2, member: 1 };
+
+function getClaimByPath(obj: unknown, path: string): unknown {
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
 }
 
-/** 解析新用户的角色。仅 owner、环境变量指定的 admin、或首个用户可获权，其他拒绝 */
-export async function resolveRoleForNewUser(email: string): Promise<UserRole | null> {
-  const envRole = resolveRole(email);
-  if (envRole) return envRole;
-  const count = await usersService.count();
-  if (count === 0) return "owner"; // 首个用户为 owner
-  return null; // 其他用户无权限
+/** 从 OIDC claims 解析角色。claim 值可为 string 或 string[]，取优先级最高者 */
+export function getRoleFromClaims(claims: Record<string, unknown>): UserRole | null {
+  const raw = getClaimByPath(claims, OIDC_ROLE_CLAIM);
+  if (raw == null) return null;
+  const arr = Array.isArray(raw)
+    ? (raw as string[]).map((s) => String(s).toLowerCase().trim())
+    : [String(raw).toLowerCase().trim()];
+  let best: UserRole | null = null;
+  for (const r of arr) {
+    const role = VALID_ROLES.find((v) => v === r) ?? null;
+    if (role && (!best || ROLE_PRIORITY[role] > ROLE_PRIORITY[best])) best = role;
+  }
+  return best;
+}
+
+export function canAccessCommonByRole(role: UserRole): boolean {
+  return canAccessCommon(role);
 }
 
 export interface SessionPayload {

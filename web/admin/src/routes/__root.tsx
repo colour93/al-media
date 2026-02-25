@@ -14,7 +14,7 @@ export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
     if (location.pathname === '/login') return;
     const user = await fetchAuthMe();
-    if (!user) {
+    if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
       throw redirect({ to: '/login' });
     }
   },
