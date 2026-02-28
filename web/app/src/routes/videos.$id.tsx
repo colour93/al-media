@@ -1,5 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { useMemo } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -7,13 +7,22 @@ import {
   useTheme,
   useMediaQuery,
   Paper,
+  Button,
 } from '@mui/material';
+import { useQuery } from '@tanstack/react-query';
+import { Clock3, Heart } from 'lucide-react';
 import { MUIPlayer } from '../components/MUIPlayer/MUIPlayer';
 import { VideoSidebarCard } from '../components/VideoSidebarCard/VideoSidebarCard';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
-import { useVideo } from '../hooks/useVideos';
-import { useRecommended } from '../hooks/useVideos';
-import { useLatest } from '../hooks/useVideos';
+import { fetchAuthMe } from '../api/auth';
+import {
+  useVideo,
+  useRecommended,
+  useLatest,
+  useVideoInteraction,
+  useSetVideoFavorite,
+  useUpsertVideoHistory,
+} from '../hooks/useVideos';
 
 export const Route = createFileRoute('/videos/$id')({
   component: VideoDetailPage,
@@ -45,6 +54,7 @@ function formatFileSize(bytes?: number): string {
 }
 
 function VideoDetailPage() {
+  const navigate = useNavigate();
   const { id } = Route.useParams();
   const videoId = Number(id);
   const isValidId = Number.isInteger(videoId);
@@ -54,6 +64,15 @@ function VideoDetailPage() {
   const { data: video, isLoading } = useVideo(isValidId ? videoId : null);
   const { data: recommended } = useRecommended();
   const { data: latestData } = useLatest(1, 12);
+  const { data: user } = useQuery({
+    queryKey: ['authMe'],
+    queryFn: fetchAuthMe,
+  });
+  const { data: interaction } = useVideoInteraction(isValidId ? videoId : null, isValidId && !!user);
+  const setFavorite = useSetVideoFavorite(isValidId ? videoId : 0);
+  const upsertHistory = useUpsertVideoHistory(isValidId ? videoId : 0);
+  const lastReportedAtRef = useRef(0);
+  const lastReportedSecondsRef = useRef(0);
 
   const sidebarVideos = useMemo(() => {
     const rec = recommended ?? [];
@@ -69,6 +88,50 @@ function VideoDetailPage() {
     () => (video?.videoFileUrl ? toPlayableUrl(video.videoFileUrl) : ''),
     [video]
   );
+  const resumeSeconds = interaction?.history && !interaction.history.completed
+    ? interaction.history.progressSeconds
+    : undefined;
+  const playbackText = interaction?.history
+    ? interaction.history.completed
+      ? '已看完'
+      : `上次看到 ${formatDuration(interaction.history.progressSeconds)}`
+    : '';
+
+  const handleFavoriteClick = () => {
+    if (!user) {
+      navigate({ to: '/login' });
+      return;
+    }
+    setFavorite.mutate(!interaction?.isFavorite);
+  };
+
+  const handleTimeUpdate = (currentSeconds: number, durationSeconds?: number) => {
+    if (!user || upsertHistory.isPending) return;
+    const rounded = Math.floor(currentSeconds);
+    if (rounded <= 0) return;
+    const now = Date.now();
+    const shouldThrottle =
+      Math.abs(rounded - lastReportedSecondsRef.current) < 5 &&
+      now - lastReportedAtRef.current < 8000;
+    if (shouldThrottle) return;
+    lastReportedAtRef.current = now;
+    lastReportedSecondsRef.current = rounded;
+    upsertHistory.mutate({
+      progressSeconds: rounded,
+      durationSeconds: durationSeconds != null ? Math.floor(durationSeconds) : undefined,
+    });
+  };
+
+  const handleEnded = () => {
+    if (!user) return;
+    lastReportedAtRef.current = Date.now();
+    lastReportedSecondsRef.current = 0;
+    upsertHistory.mutate({
+      progressSeconds: 0,
+      durationSeconds: video?.videoDuration != null ? Math.floor(video.videoDuration) : undefined,
+      completed: true,
+    });
+  };
 
   if (!isValidId) {
     return (
@@ -100,7 +163,13 @@ function VideoDetailPage() {
         <Box sx={{ maxWidth: 960, mx: 'auto' }}>
           {playUrl && (
             <Box sx={{ mb: 2 }}>
-              <MUIPlayer url={playUrl} fullWidth />
+              <MUIPlayer
+                url={playUrl}
+                fullWidth
+                initialSeekSeconds={resumeSeconds}
+                onTimeUpdate={handleTimeUpdate}
+                onEnded={handleEnded}
+              />
             </Box>
           )}
           <Typography variant="h5" fontWeight={600} gutterBottom>
@@ -111,6 +180,28 @@ function VideoDetailPage() {
               {metaParts}
             </Typography>
           )}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+            <Button
+              size="small"
+              variant={interaction?.isFavorite ? 'contained' : 'outlined'}
+              color={interaction?.isFavorite ? 'error' : 'primary'}
+              onClick={handleFavoriteClick}
+              disabled={setFavorite.isPending}
+              startIcon={<Heart size={16} fill={interaction?.isFavorite ? 'currentColor' : 'none'} />}
+            >
+              {interaction?.isFavorite ? '已收藏' : '收藏'}
+            </Button>
+            {playbackText ? (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+              >
+                <Clock3 size={14} />
+                {playbackText}
+              </Typography>
+            ) : null}
+          </Box>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
             {video.tags?.map((t) => (
               <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />

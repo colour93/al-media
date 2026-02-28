@@ -1,10 +1,13 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { Box, Paper, Typography, Button } from '@mui/material';
+import { useState } from 'react';
+import { Box, Paper, Typography, Button, CircularProgress, Pagination } from '@mui/material';
 import { User, LogOut, ExternalLink } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { fetchAuthMe, logout } from '../api/auth';
 import { fetchCommonMetadata } from '../api/metadata';
+import { VideoCard } from '../components/VideoCard/VideoCard';
+import { useFavoriteVideos, useWatchHistory } from '../hooks/useVideos';
 
 export const Route = createFileRoute('/me')({
   beforeLoad: async () => {
@@ -18,7 +21,19 @@ export const Route = createFileRoute('/me')({
 
 const canAccessAdmin = (role: string) => role === 'owner' || role === 'admin';
 
+function formatDuration(seconds?: number | null): string {
+  if (seconds == null || seconds < 0) return '--:--';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 function MePage() {
+  const pageSize = 12;
+  const [favoritesPage, setFavoritesPage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: user } = useQuery({
@@ -30,6 +45,8 @@ function MePage() {
     queryFn: fetchCommonMetadata,
     enabled: !!user && canAccessAdmin(user.role),
   });
+  const { data: favoritesData, isLoading: favoritesLoading } = useFavoriteVideos(favoritesPage, pageSize, !!user);
+  const { data: historyData, isLoading: historyLoading } = useWatchHistory(historyPage, pageSize, !!user);
 
   const handleLogout = async () => {
     await logout();
@@ -45,8 +62,14 @@ function MePage() {
   if (showAdminLink && metadata) {
     try {
       adminSameOrigin = new URL(metadata.adminPanelUrl).origin === window.location.origin;
-    } catch {}
+    } catch (error) {
+      void error;
+    }
   }
+  const favorites = favoritesData?.items ?? [];
+  const historyItems = historyData?.items ?? [];
+  const favoritePages = Math.max(1, Math.ceil((favoritesData?.total ?? 0) / pageSize));
+  const historyPages = Math.max(1, Math.ceil((historyData?.total ?? 0) / pageSize));
 
   return (
     <Box>
@@ -84,6 +107,87 @@ function MePage() {
             </Button>
           </Box>
         </Box>
+      </Paper>
+
+      <Paper sx={{ p: 3, mt: 2 }}>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          收藏夹
+        </Typography>
+        {favoritesLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={26} />
+          </Box>
+        ) : favorites.length === 0 ? (
+          <Typography color="text.secondary">还没有收藏视频</Typography>
+        ) : (
+          <>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: 'repeat(2, 1fr)',
+                  sm: 'repeat(3, 1fr)',
+                  md: 'repeat(4, 1fr)',
+                  lg: 'repeat(5, 1fr)',
+                },
+                gap: 2,
+              }}
+            >
+              {favorites.map((video) => (
+                <VideoCard key={video.id} video={video} />
+              ))}
+            </Box>
+            {favoritePages > 1 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                <Pagination count={favoritePages} page={favoritesPage} onChange={(_, page) => setFavoritesPage(page)} />
+              </Box>
+            ) : null}
+          </>
+        )}
+      </Paper>
+
+      <Paper sx={{ p: 3, mt: 2 }}>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          播放历史
+        </Typography>
+        {historyLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={26} />
+          </Box>
+        ) : historyItems.length === 0 ? (
+          <Typography color="text.secondary">暂无播放历史</Typography>
+        ) : (
+          <>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: 'repeat(2, 1fr)',
+                  sm: 'repeat(3, 1fr)',
+                  md: 'repeat(4, 1fr)',
+                  lg: 'repeat(5, 1fr)',
+                },
+                gap: 2,
+              }}
+            >
+              {historyItems.map((item) => (
+                <Box key={item.video.id}>
+                  <VideoCard video={item.video} />
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                    {item.completed
+                      ? '已看完'
+                      : `看到 ${formatDuration(item.progressSeconds)} / ${formatDuration(item.durationSeconds)}`}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+            {historyPages > 1 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                <Pagination count={historyPages} page={historyPage} onChange={(_, page) => setHistoryPage(page)} />
+              </Box>
+            ) : null}
+          </>
+        )}
       </Paper>
     </Box>
   );

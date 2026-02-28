@@ -1,6 +1,14 @@
 export { actorsTable } from "../entities/Actor";
 export { usersTable, userRoleEnum } from "../entities/User";
 export {
+  userFavoriteVideosTable,
+  userFavoriteVideoRelations,
+} from "../entities/UserFavoriteVideo";
+export {
+  userVideoHistoriesTable,
+  userVideoHistoryRelations,
+} from "../entities/UserVideoHistory";
+export {
   actorTagsTable,
   actorActorTagsRelations,
   tagActorTagsRelations,

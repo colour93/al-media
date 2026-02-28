@@ -74,3 +74,20 @@ export async function get<T>(path: string, params?: RequestParams, basePrefix?: 
   });
   return handleResponse<T>(res);
 }
+
+export async function post<T>(
+  path: string,
+  body?: unknown,
+  basePrefix: 'common' | 'admin' = 'common'
+): Promise<T> {
+  const res = await fetch(buildUrl(path, undefined, basePrefix), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: body == null ? undefined : JSON.stringify(body),
+    ...fetchOpts,
+  });
+  return handleResponse<T>(res);
+}

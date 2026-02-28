@@ -9,7 +9,16 @@ const SESSION_COOKIE = "al_media_session";
 function getCookieFromHeader(cookieHeader: string | null, name: string): string | undefined {
   if (!cookieHeader) return undefined;
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : undefined;
+  if (!match) return undefined;
+  let val = match[1].trim();
+  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    val = val.slice(1, -1);
+  }
+  try {
+    return decodeURIComponent(val);
+  } catch {
+    return val;
+  }
 }
 
 export const adminAuthGuard = new Elysia({ name: "adminAuth" })

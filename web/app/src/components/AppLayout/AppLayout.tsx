@@ -8,14 +8,16 @@ import {
   Toolbar,
   Button,
   IconButton,
+  Typography,
+  Avatar,
+  Tooltip,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
-import { Home, Film, ArrowLeft, User } from 'lucide-react';
-import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { fetchAuthMe, logout } from '../../api/auth';
+import { Home, Film, User, ArrowLeft } from 'lucide-react';
+import { Link, Outlet, useLocation } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { fetchAuthMe } from '../../api/auth';
 
 const isDetailPage = (pathname: string) => /^\/videos\/\d+$/.test(pathname);
 
@@ -25,22 +27,12 @@ export function AppLayout() {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const onDetailPage = isDetailPage(pathname);
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const { data: user } = useQuery({
     queryKey: ['authMe'],
     queryFn: fetchAuthMe,
     staleTime: 5 * 60 * 1000,
   });
-
-  const handleLogout = async () => {
-    setAnchorEl(null);
-    await logout();
-    queryClient.setQueryData(['authMe'], null);
-    navigate({ to: '/login' });
-  };
 
   const navValue =
     pathname === '/'
@@ -51,20 +43,26 @@ export function AppLayout() {
           ? '/me'
           : pathname;
 
+  const userInitial = (user?.name || user?.email || '?')[0].toUpperCase();
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', pb: onDetailPage ? 0 : { xs: 8, md: 0 } }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', pb: onDetailPage ? 0 : { xs: 7, md: 0 } }}>
       {onDetailPage ? (
-        <AppBar position="static" color="default" elevation={0} sx={{ mb: 0 }}>
+        <AppBar position="sticky" color="default" elevation={1}>
           <Container maxWidth="xl">
             <Toolbar disableGutters>
-              <Button component={Link} to="/" startIcon={<ArrowLeft size={20} />} size="small">
+              <Button component={Link} to="/" startIcon={<ArrowLeft size={18} />} size="small">
                 返回首页
               </Button>
-              <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
+              <Box sx={{ ml: 'auto' }}>
                 {user ? (
-                  <IconButton component={Link} to="/me" color="inherit" aria-label="我的">
-                    <User size={22} />
-                  </IconButton>
+                  <Tooltip title={user.name || user.email || '我的'}>
+                    <IconButton component={Link} to="/me" color="inherit" size="small">
+                      <Avatar sx={{ width: 30, height: 30, fontSize: '0.8rem', bgcolor: 'primary.main' }}>
+                        {userInitial}
+                      </Avatar>
+                    </IconButton>
+                  </Tooltip>
                 ) : (
                   <Button component={Link} to="/login" size="small" variant="outlined">
                     登录
@@ -75,36 +73,46 @@ export function AppLayout() {
           </Container>
         </AppBar>
       ) : isDesktop ? (
-        <AppBar position="static" color="default" elevation={1} sx={{ mb: 2 }}>
+        <AppBar position="sticky" color="default" elevation={1}>
           <Container maxWidth="xl">
-            <Toolbar disableGutters sx={{ gap: 2 }}>
+            <Toolbar disableGutters sx={{ gap: 1 }}>
+              <Typography
+                variant="h6"
+                fontWeight={700}
+                sx={{ mr: 2, color: 'primary.main', letterSpacing: -0.5, userSelect: 'none' }}
+              >
+                AL Media
+              </Typography>
               <Button
                 component={Link}
                 to="/"
-                startIcon={<Home size={20} />}
+                startIcon={<Home size={18} />}
                 color={navValue === '/' ? 'primary' : 'inherit'}
-                sx={{ fontWeight: navValue === '/' ? 600 : 400 }}
+                sx={{ fontWeight: navValue === '/' ? 700 : 400 }}
               >
                 首页
               </Button>
               <Button
                 component={Link}
                 to="/videos"
-                startIcon={<Film size={20} />}
+                startIcon={<Film size={18} />}
                 color={navValue === '/videos' ? 'primary' : 'inherit'}
-                sx={{ fontWeight: navValue === '/videos' ? 600 : 400 }}
+                sx={{ fontWeight: navValue === '/videos' ? 700 : 400 }}
               >
                 视频
               </Button>
-              {user && (
-                <Button
-                  component={Link}
-                  to="/me"
-                  startIcon={<User size={20} />}
-                  color={navValue === '/me' ? 'primary' : 'inherit'}
-                  sx={{ fontWeight: navValue === '/me' ? 600 : 400 }}
-                >
-                  我的
+              <Box sx={{ flex: 1 }} />
+              {user ? (
+                <Tooltip title={user.name || user.email || '我的'}>
+                  <IconButton component={Link} to="/me" color="inherit" size="small">
+                    <Avatar sx={{ width: 32, height: 32, fontSize: '0.875rem', bgcolor: 'primary.main' }}>
+                      {userInitial}
+                    </Avatar>
+                  </IconButton>
+                </Tooltip>
+              ) : (
+                <Button component={Link} to="/login" variant="outlined" size="small">
+                  登录
                 </Button>
               )}
             </Toolbar>
@@ -127,14 +135,14 @@ export function AppLayout() {
               to="/"
               label="首页"
               value="/"
-              icon={<Home size={24} />}
+              icon={<Home size={22} />}
             />
             <BottomNavigationAction
               component={Link}
               to="/videos"
               label="视频"
               value="/videos"
-              icon={<Film size={24} />}
+              icon={<Film size={22} />}
             />
             {user ? (
               <BottomNavigationAction
@@ -142,7 +150,7 @@ export function AppLayout() {
                 to="/me"
                 label="我的"
                 value="/me"
-                icon={<User size={24} />}
+                icon={<User size={22} />}
               />
             ) : (
               <BottomNavigationAction
@@ -150,13 +158,13 @@ export function AppLayout() {
                 to="/login"
                 label="我的"
                 value="/me"
-                icon={<User size={24} />}
+                icon={<User size={22} />}
               />
             )}
           </BottomNavigation>
         </Paper>
       )}
-      <Container component="main" maxWidth="xl" sx={{ flex: 1, py: 2, px: { xs: 2, md: 3 } }}>
+      <Container component="main" maxWidth="xl" sx={{ flex: 1, py: 3, px: { xs: 2, md: 3 } }}>
         <Outlet />
       </Container>
     </Box>

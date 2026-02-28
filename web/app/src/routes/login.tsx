@@ -38,7 +38,7 @@ function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: 'grey.100',
+        bgcolor: 'background.default',
       }}
     >
       <Paper sx={{ p: 4, maxWidth: 400, width: '100%' }}>

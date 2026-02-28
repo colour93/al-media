@@ -1,6 +1,6 @@
-import { get } from './client';
+import { get, post } from './client';
 import type { PaginatedResult } from './types';
-import type { VideoDetail } from './types';
+import type { VideoDetail, VideoHistoryItem, VideoHistoryState, VideoInteractionState } from './types';
 
 const BASE = '/videos';
 
@@ -33,4 +33,37 @@ export async function fetchLatest(
   pageSize: number
 ): Promise<PaginatedResult<VideoDetail>> {
   return get<PaginatedResult<VideoDetail>>(`${BASE}/latest`, { page, pageSize });
+}
+
+export async function fetchVideoInteractionState(id: number): Promise<VideoInteractionState> {
+  return get<VideoInteractionState>(`${BASE}/${id}/interactions`);
+}
+
+export async function setVideoFavorite(id: number, favorite: boolean): Promise<{ isFavorite: boolean }> {
+  return post<{ isFavorite: boolean }>(`${BASE}/${id}/favorite`, { favorite });
+}
+
+export async function upsertVideoHistory(
+  id: number,
+  payload: {
+    progressSeconds: number;
+    durationSeconds?: number;
+    completed?: boolean;
+  }
+): Promise<VideoHistoryState> {
+  return post<VideoHistoryState>(`${BASE}/${id}/history`, payload);
+}
+
+export async function fetchFavoriteVideos(
+  page: number,
+  pageSize: number
+): Promise<PaginatedResult<VideoDetail>> {
+  return get<PaginatedResult<VideoDetail>>(`${BASE}/favorites`, { page, pageSize });
+}
+
+export async function fetchWatchHistory(
+  page: number,
+  pageSize: number
+): Promise<PaginatedResult<VideoHistoryItem>> {
+  return get<PaginatedResult<VideoHistoryItem>>(`${BASE}/history`, { page, pageSize });
 }

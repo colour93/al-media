@@ -56,3 +56,19 @@ export interface VideoDetail extends Video {
   /** 文件大小（字节） */
   fileSize?: number;
 }
+
+export interface VideoHistoryState {
+  progressSeconds: number;
+  durationSeconds: number | null;
+  completed: boolean;
+  lastPlayedAt: string;
+}
+
+export interface VideoInteractionState {
+  isFavorite: boolean;
+  history: VideoHistoryState | null;
+}
+
+export interface VideoHistoryItem extends VideoHistoryState {
+  video: VideoDetail;
+}
