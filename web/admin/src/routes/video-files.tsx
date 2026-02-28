@@ -28,6 +28,7 @@ import { useCreatorsList } from '../hooks/useCreators';
 import { useTagsList } from '../hooks/useTags';
 import { getFileUrl } from '../api/file';
 import { renderLucideIcon } from '../utils/lucideIcons';
+import { formatDurationHuman } from '../utils/format';
 import { useQueryClient } from '@tanstack/react-query';
 import { validateListSearch } from '../schemas/listSearch';
 import type { VideoFile } from '../api/types';
@@ -35,17 +36,6 @@ import type { Actor } from '../api/types';
 import type { Creator } from '../api/types';
 import type { Tag, TagType } from '../api/types';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
-
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const parts = [];
-  if (h) parts.push(`${h}h`);
-  if (m) parts.push(`${m}m`);
-  parts.push(`${s}s`);
-  return parts.join(' ');
-}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -353,7 +343,7 @@ function VideoFilesPage() {
       id: 'duration',
       label: '时长',
       width: 100,
-      render: (r) => formatDuration(r.videoDuration),
+      render: (r) => formatDurationHuman(r.videoDuration),
     },
     {
       id: 'size',
@@ -509,7 +499,7 @@ function VideoFilesPage() {
                     {f.fileKey.split('/').pop()}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {formatDuration(f.videoDuration)} · {formatSize(f.fileSize)}
+                    {formatDurationHuman(f.videoDuration)} · {formatSize(f.fileSize)}
                   </Typography>
                 </Box>
                 {actionsColumn(f)}

@@ -15,18 +15,20 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { Home, Film, User, ArrowLeft } from 'lucide-react';
-import { Link, Outlet, useLocation } from '@tanstack/react-router';
+import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAuthMe } from '../../api/auth';
 
-const isDetailPage = (pathname: string) => /^\/videos\/\d+$/.test(pathname);
+const isSecondLevelPage = (pathname: string) => pathname.split('/').filter(Boolean).length >= 2;
 
 export function AppLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const pathname = location.pathname;
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
-  const onDetailPage = isDetailPage(pathname);
+  const onSecondLevelPage = isSecondLevelPage(pathname);
+  const showMobileBottomNav = !isDesktop && !onSecondLevelPage;
 
   const { data: user } = useQuery({
     queryKey: ['authMe'],
@@ -45,14 +47,22 @@ export function AppLayout() {
 
   const userInitial = (user?.name || user?.email || '?')[0].toUpperCase();
 
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    navigate({ to: '/' });
+  };
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', pb: onDetailPage ? 0 : { xs: 7, md: 0 } }}>
-      {onDetailPage ? (
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', pb: showMobileBottomNav ? 7 : 0 }}>
+      {onSecondLevelPage ? (
         <AppBar position="sticky" color="default" elevation={1}>
           <Container maxWidth="xl">
             <Toolbar disableGutters>
-              <Button component={Link} to="/" startIcon={<ArrowLeft size={18} />} size="small">
-                返回首页
+              <Button onClick={handleBack} startIcon={<ArrowLeft size={18} />} size="small">
+                返回上一页
               </Button>
               <Box sx={{ ml: 'auto' }}>
                 {user ? (
@@ -118,7 +128,7 @@ export function AppLayout() {
             </Toolbar>
           </Container>
         </AppBar>
-      ) : (
+      ) : showMobileBottomNav ? (
         <Paper
           elevation={3}
           sx={{
@@ -163,7 +173,7 @@ export function AppLayout() {
             )}
           </BottomNavigation>
         </Paper>
-      )}
+      ) : null}
       <Container component="main" maxWidth="xl" sx={{ flex: 1, py: 3, px: { xs: 2, md: 3 } }}>
         <Outlet />
       </Container>

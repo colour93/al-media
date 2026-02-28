@@ -3,6 +3,7 @@ import { Box, Chip, Typography } from '@mui/material';
 import { Link, useRouter } from '@tanstack/react-router';
 import { getFileUrl } from '../../api/file';
 import { renderLucideIcon } from '../../utils/lucideIcons';
+import { formatDurationClock } from '../../utils/format';
 import { useEntityRelated } from '../../contexts/EntityRelatedContext';
 import type {
   Actor,
@@ -32,12 +33,6 @@ const ROUTES: Record<EntityType, string> = {
   video: '/videos',
   videoFile: '/video-files',
 };
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 export interface EntityPreviewProps {
   entityType: EntityType;
@@ -206,7 +201,7 @@ export function EntityPreview({ entityType, entity, size = 'sm', inline = false 
               {vf.fileKey}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {formatDuration(vf.videoDuration)}
+              {formatDurationClock(vf.videoDuration)}
             </Typography>
           </>
         );

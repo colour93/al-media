@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { userFavoriteVideosTable } from "../entities/UserFavoriteVideo";
 import { userVideoHistoriesTable } from "../entities/UserVideoHistory";
@@ -106,7 +106,8 @@ class UserVideoInteractionsService {
       durationSeconds > 0 &&
       progressSeconds >= Math.max(0, durationSeconds - 3);
     const completed = Boolean(payload.completed) || autoCompleted;
-    const storedProgressSeconds = completed ? 0 : progressSeconds;
+    const playCountDelta = payload.completed === true ? 1 : 0;
+    const storedProgressSeconds = progressSeconds;
     const now = new Date();
 
     await db
@@ -115,6 +116,7 @@ class UserVideoInteractionsService {
         userId,
         videoId,
         progressSeconds: storedProgressSeconds,
+        playCount: playCountDelta,
         durationSeconds,
         completed,
         lastPlayedAt: now,
@@ -123,6 +125,7 @@ class UserVideoInteractionsService {
         target: [userVideoHistoriesTable.userId, userVideoHistoriesTable.videoId],
         set: {
           progressSeconds: storedProgressSeconds,
+          playCount: sql<number>`${userVideoHistoriesTable.playCount} + ${playCountDelta}`,
           durationSeconds,
           completed,
           lastPlayedAt: now,

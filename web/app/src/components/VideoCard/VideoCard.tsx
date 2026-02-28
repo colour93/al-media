@@ -1,17 +1,10 @@
 import { Card, CardActionArea, CardMedia, CardContent, Typography, Box } from '@mui/material';
 import { Link } from '@tanstack/react-router';
+import { Eye } from 'lucide-react';
 import { getThumbnailUrl } from '../../api/file';
 import { EntityPreview } from '../EntityPreview/EntityPreview';
 import type { VideoDetail } from '../../api/types';
-
-function formatDuration(seconds?: number): string {
-  if (seconds == null || seconds < 0) return '';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
+import { formatDurationFromSeconds, formatShortPlayCount } from '../../utils/format';
 
 function formatFileSize(bytes?: number): string {
   if (bytes == null || bytes < 0) return '';
@@ -28,8 +21,9 @@ interface VideoCardProps {
 
 export function VideoCard({ video, showActors = true }: VideoCardProps) {
   const thumbUrl = getThumbnailUrl(video.thumbnailKey);
-  const duration = formatDuration(video.videoDuration);
+  const duration = formatDurationFromSeconds(video.videoDuration);
   const fileSize = formatFileSize(video.fileSize);
+  const playCount = formatShortPlayCount(video.playCount);
 
   return (
     <Card
@@ -67,6 +61,25 @@ export function VideoCard({ video, showActors = true }: VideoCardProps) {
               bgcolor: 'action.hover',
             }}
           />
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 4,
+              left: 4,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              bgcolor: 'rgba(0,0,0,0.7)',
+              color: 'white',
+              px: 0.5,
+              borderRadius: 0.5,
+            }}
+          >
+            <Eye size={11} />
+            <Typography variant="caption" color="inherit">
+              {playCount}
+            </Typography>
+          </Box>
           {(duration || fileSize) && (
             <Typography
               variant="caption"

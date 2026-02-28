@@ -3,15 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { getThumbnailUrl } from '../../api/file';
 import { EntityPreview } from '../EntityPreview/EntityPreview';
 import type { VideoDetail } from '../../api/types';
-
-function formatDuration(seconds?: number): string {
-  if (seconds == null || seconds < 0) return '';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
+import { formatDurationFromSeconds } from '../../utils/format';
 
 function formatFileSize(bytes?: number): string {
   if (bytes == null || bytes < 0) return '';
@@ -27,7 +19,7 @@ interface VideoSidebarCardProps {
 
 export function VideoSidebarCard({ video }: VideoSidebarCardProps) {
   const thumbUrl = getThumbnailUrl(video.thumbnailKey);
-  const duration = formatDuration(video.videoDuration);
+  const duration = formatDurationFromSeconds(video.videoDuration);
   const fileSize = formatFileSize(video.fileSize);
   const metaParts = [duration, fileSize].filter(Boolean).join(' · ');
 

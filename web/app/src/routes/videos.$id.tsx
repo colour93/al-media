@@ -25,6 +25,7 @@ import {
 } from '../hooks/useVideos';
 import type { VideoMimeType } from '@vidstack/react';
 import { useRequest } from 'ahooks';
+import { formatDurationFromSeconds } from '../utils/format';
 
 export const Route = createFileRoute('/videos/$id')({
   component: VideoDetailPage,
@@ -55,15 +56,6 @@ function inferVideoMimeType(fileKey?: string | null): VideoMimeType | undefined 
     mpg: 'video/mpeg',
   };
   return map[ext];
-}
-
-function formatDuration(seconds?: number): string {
-  if (seconds == null || seconds < 0) return '';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 function formatFileSize(bytes?: number): string {
@@ -113,13 +105,11 @@ function VideoDetailPage() {
     () => inferVideoMimeType(video?.videoFileKey) ?? 'video/mp4',
     [video?.videoFileKey]
   );
-  const resumeSeconds = interaction?.history && !interaction.history.completed
+  const resumeSeconds = interaction?.history?.progressSeconds && interaction.history.progressSeconds > 0
     ? interaction.history.progressSeconds
     : undefined;
   const playbackText = interaction?.history
-    ? interaction.history.completed
-      ? '已看完'
-      : `上次看到 ${formatDuration(interaction.history.progressSeconds)}`
+    ? `上次看到 ${formatDurationFromSeconds(interaction.history.progressSeconds)}${interaction.history.completed ? '（已看完）' : ''}`
     : '';
 
   const handleFavoriteClick = () => {
@@ -152,10 +142,13 @@ function VideoDetailPage() {
 
   const handleEnded = () => {
     if (!user) return;
+    const endedSeconds = video?.videoDuration != null
+      ? Math.floor(video.videoDuration)
+      : Math.max(0, lastReportedSecondsRef.current);
     lastReportedAtRef.current = Date.now();
-    lastReportedSecondsRef.current = 0;
+    lastReportedSecondsRef.current = endedSeconds;
     upsertHistory.mutate({
-      progressSeconds: 0,
+      progressSeconds: endedSeconds,
       durationSeconds: video?.videoDuration != null ? Math.floor(video.videoDuration) : undefined,
       completed: true,
     });
@@ -176,7 +169,7 @@ function VideoDetailPage() {
     );
   }
 
-  const metaParts = [formatDuration(video.videoDuration), formatFileSize(video.fileSize)].filter(Boolean).join(' · ');
+  const metaParts = [formatDurationFromSeconds(video.videoDuration), formatFileSize(video.fileSize)].filter(Boolean).join(' · ');
 
   return (
     <Box

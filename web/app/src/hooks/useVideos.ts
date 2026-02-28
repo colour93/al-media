@@ -73,6 +73,9 @@ export function useWatchHistory(page: number, pageSize: number, enabled = true) 
     queryKey: ['common', 'videos', 'history', page, pageSize],
     queryFn: () => fetchWatchHistory(page, pageSize),
     enabled,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

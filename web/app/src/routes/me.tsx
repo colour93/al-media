@@ -8,6 +8,7 @@ import { fetchAuthMe, logout } from '../api/auth';
 import { fetchCommonMetadata } from '../api/metadata';
 import { VideoCard } from '../components/VideoCard/VideoCard';
 import { useFavoriteVideos, useWatchHistory } from '../hooks/useVideos';
+import { formatDurationFromSeconds } from '../utils/format';
 
 export const Route = createFileRoute('/me')({
   beforeLoad: async () => {
@@ -20,15 +21,6 @@ export const Route = createFileRoute('/me')({
 });
 
 const canAccessAdmin = (role: string) => role === 'owner' || role === 'admin';
-
-function formatDuration(seconds?: number | null): string {
-  if (seconds == null || seconds < 0) return '--:--';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 interface VideoCollectionSectionProps {
   title: string;
@@ -219,9 +211,7 @@ function MePage() {
             <Box key={item.video.id}>
               <VideoCard video={item.video} showActors={false} />
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, px: 0.25, display: 'block', lineHeight: 1.4 }}>
-                {item.completed
-                  ? '已看完'
-                  : `看到 ${formatDuration(item.progressSeconds)} / ${formatDuration(item.durationSeconds)}`}
+                {`看到 ${formatDurationFromSeconds(item.progressSeconds, '--:--')} / ${formatDurationFromSeconds(item.durationSeconds, '--:--')}${item.completed ? '（已看完）' : ''}`}
               </Typography>
             </Box>
           ))}

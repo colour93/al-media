@@ -13,6 +13,7 @@ export const userVideoHistoriesTable = pgTable(
       .notNull()
       .references(() => videosTable.id, { onDelete: "cascade" }),
     progressSeconds: integer("progress_seconds").notNull().default(0),
+    playCount: integer("play_count").notNull().default(0),
     durationSeconds: integer("duration_seconds"),
     completed: boolean("completed").notNull().default(false),
     lastPlayedAt: timestamp("last_played_at").notNull().defaultNow(),

@@ -56,6 +56,8 @@ export interface VideoDetail extends Video {
   videoDuration?: number;
   /** 文件大小（字节） */
   fileSize?: number;
+  /** 播放量（同一用户可重复累计） */
+  playCount?: number;
 }
 
 export interface VideoHistoryState {

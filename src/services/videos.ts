@@ -1,4 +1,4 @@
-import { eq, ilike, inArray } from "drizzle-orm";
+import { eq, ilike, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { VideoFile } from "../entities/VideoFile";
 import { videosTable } from "../entities/Video";
@@ -12,6 +12,7 @@ import { videoTagsTable } from "../entities/VideoTag";
 import { actorsTable } from "../entities/Actor";
 import { creatorsTable } from "../entities/Creator";
 import { distributorsTable } from "../entities/Distributor";
+import { userVideoHistoriesTable } from "../entities/UserVideoHistory";
 import { fileManager, FileCategory } from "./fileManager";
 import { ffmpegManager } from "./ffmpegManager";
 import { videoFileManager } from "./videoFileManager";
@@ -351,7 +352,12 @@ class VideosService {
     const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
     const enriched = shaped.map((s) => {
       const meta = metaMap.get((s as { id: number }).id);
-      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+      return {
+        ...s,
+        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+        playCount: meta?.playCount ?? 0,
+      };
     });
     return { page, pageSize, total: total ?? 0, items: enriched };
   }
@@ -380,7 +386,12 @@ class VideosService {
     const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
     const enriched = shaped.map((s) => {
       const meta = metaMap.get((s as { id: number }).id);
-      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+      return {
+        ...s,
+        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+        playCount: meta?.playCount ?? 0,
+      };
     });
     return { page, pageSize, total: total ?? 0, items: enriched };
   }
@@ -406,7 +417,9 @@ class VideosService {
       ...shaped,
       videoFileUrl,
       videoFileKey: videoFileInfo?.fileKey ?? null,
-      ...(meta && { videoDuration: meta.videoDuration, fileSize: meta.fileSize }),
+      ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+      ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+      playCount: meta?.playCount ?? 0,
     };
   }
 
@@ -420,7 +433,12 @@ class VideosService {
     const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
     return shaped.map((s) => {
       const meta = metaMap.get((s as { id: number }).id);
-      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+      return {
+        ...s,
+        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+        playCount: meta?.playCount ?? 0,
+      };
     });
   }
 
@@ -434,7 +452,12 @@ class VideosService {
     const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
     return shaped.map((s) => {
       const meta = metaMap.get((s as { id: number }).id);
-      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+      return {
+        ...s,
+        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+        playCount: meta?.playCount ?? 0,
+      };
     });
   }
 
@@ -452,7 +475,12 @@ class VideosService {
     const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
     const enriched = shaped.map((s) => {
       const meta = metaMap.get((s as { id: number }).id);
-      return meta ? { ...s, videoDuration: meta.videoDuration, fileSize: meta.fileSize } : s;
+      return {
+        ...s,
+        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+        playCount: meta?.playCount ?? 0,
+      };
     });
     return { page, pageSize, total: total ?? 0, items: enriched };
   }
@@ -576,25 +604,47 @@ class VideosService {
       : null;
   }
 
-  /** 批量获取视频的 video_duration、file_size */
+  /** 批量获取视频的时长/文件大小/播放量 */
   async getVideoFileMetaMap(
     videoIds: number[]
-  ): Promise<Map<number, { videoDuration: number; fileSize: number }>> {
+  ): Promise<Map<number, { videoDuration?: number; fileSize?: number; playCount: number }>> {
     if (videoIds.length === 0) return new Map();
-    const rows = await db
-      .select({
-        videoId: videoUniqueContentsTable.videoId,
-        videoDuration: videoFilesTable.videoDuration,
-        fileSize: videoFilesTable.fileSize,
-      })
-      .from(videoUniqueContentsTable)
-      .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
-      .where(inArray(videoUniqueContentsTable.videoId, videoIds));
-    const map = new Map<number, { videoDuration: number; fileSize: number }>();
+    const [rows, playCountRows] = await Promise.all([
+      db
+        .select({
+          videoId: videoUniqueContentsTable.videoId,
+          videoDuration: videoFilesTable.videoDuration,
+          fileSize: videoFilesTable.fileSize,
+        })
+        .from(videoUniqueContentsTable)
+        .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
+        .where(inArray(videoUniqueContentsTable.videoId, videoIds)),
+      db
+        .select({
+          videoId: userVideoHistoriesTable.videoId,
+          playCount: sql<number>`sum(case when ${userVideoHistoriesTable.playCount} > 0 then ${userVideoHistoriesTable.playCount} else 1 end)`,
+        })
+        .from(userVideoHistoriesTable)
+        .where(inArray(userVideoHistoriesTable.videoId, videoIds))
+        .groupBy(userVideoHistoriesTable.videoId),
+    ]);
+    const map = new Map<number, { videoDuration?: number; fileSize?: number; playCount: number }>();
+    for (const videoId of videoIds) {
+      map.set(videoId, { playCount: 0 });
+    }
     for (const row of rows) {
+      const prev = map.get(row.videoId) ?? { playCount: 0 };
       map.set(row.videoId, {
+        ...prev,
         videoDuration: Number(row.videoDuration),
         fileSize: Number(row.fileSize),
+      });
+    }
+    for (const row of playCountRows) {
+      const prev = map.get(row.videoId) ?? { playCount: 0 };
+      map.set(row.videoId, {
+        ...prev,
+        playCount: Number(row.playCount),
       });
     }
     return map;
