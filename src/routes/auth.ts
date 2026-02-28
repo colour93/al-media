@@ -18,7 +18,8 @@ const logger = createLogger("auth");
 
 const SESSION_COOKIE = "al_media_session";
 const PKCE_COOKIE = "_oidc_pkce";
-const ADMIN_APP_URL = process.env.ADMIN_APP_URL ?? "http://localhost:39995/admin";
+const APP_URL = process.env.APP_URL ?? process.env.BASE_URL ?? "http://localhost:39994";
+const ADMIN_APP_URL = process.env.ADMIN_APP_URL ?? `${APP_URL}/admin`;
 
 function getCookieValue(cookieHeader: string | null, name: string): string | undefined {
   if (!cookieHeader) return undefined;
@@ -30,8 +31,6 @@ function getCookieValue(cookieHeader: string | null, name: string): string | und
   }
   return val;
 }
-
-const APP_URL = process.env.APP_URL ?? "http://localhost:39996";
 
 export const authRoutes = new Elysia({ prefix: "/auth" })
   .get("/config", () => ({

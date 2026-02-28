@@ -3,7 +3,15 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "NODE_ENV=development bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist",
+    "build": "bun run build:server",
+    "build:server": "bun build src/index.ts --target=bun --outdir dist",
+    "build:web:app": "cd web/app && bun run build",
+    "build:web:admin": "cd web/admin && bun run build",
+    "build:web": "bun run build:web:app && bun run build:web:admin",
+    "build:all": "bun run build:web && bun run build:server",
+    "build:binary": "bun build src/index.ts --target=bun --compile --outfile dist/al-media",
+    "package:binary": "bun run build:web && bun run build:binary && mkdir -p dist/release/web/app dist/release/web/admin && cp -R web/app/dist/. dist/release/web/app && cp -R web/admin/dist/. dist/release/web/admin && cp dist/al-media dist/release/al-media",
+    "docker:build": "docker build -t al-media:latest .",
     "start": "NODE_ENV=production bun run dist/index.js"
   },
   "dependencies": {

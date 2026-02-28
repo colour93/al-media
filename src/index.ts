@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { appRoutes } from "./routes";
 import { createLogger } from "./utils/logger";
 import { videoFileManager } from "./services/videoFileManager";
+import { staticRoutes } from "./routes/static";
 
 const port = process.env.PORT || 39994;
 const logger = createLogger("root");
@@ -34,7 +35,8 @@ app
       return "";
     }
   })
-  .use(appRoutes);
+  .use(appRoutes)
+  .use(staticRoutes);
 
 app.listen(port, () => {
   logger.info(`服务运行于: http://localhost:${port}`);
