@@ -60,7 +60,7 @@ export function ActorCard({ actor }: ActorCardProps) {
           {actor.tags?.length ? (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, justifyContent: 'center' }}>
               {actor.tags.map((t) => (
-                <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />
+                <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" disableLink />
               ))}
             </Box>
           ) : null}

@@ -19,9 +19,17 @@ export interface EntityPreviewProps {
   size?: 'sm' | 'md';
   /** actor 专用：'card' 为头像上、名字下的布局。双行名字仅在此模式下启用 */
   layout?: 'inline' | 'card';
+  /** 在外层已是链接时禁用内部跳转，避免出现 <a> 嵌套 */
+  disableLink?: boolean;
 }
 
-export function EntityPreview({ entityType, entity, size = 'sm', layout = 'inline' }: EntityPreviewProps) {
+export function EntityPreview({
+  entityType,
+  entity,
+  size = 'sm',
+  layout = 'inline',
+  disableLink = false,
+}: EntityPreviewProps) {
   const to = ENTITY_ROUTES[entityType](entity.id);
   const isCard = layout === 'card' && entityType === 'actor';
   const linkSx = isCard
@@ -143,13 +151,16 @@ export function EntityPreview({ entityType, entity, size = 'sm', layout = 'inlin
     }
   })();
 
+  if (disableLink) {
+    return (
+      <Box component="span" sx={linkSx}>
+        {content}
+      </Box>
+    );
+  }
+
   return (
-    <Box
-      component={Link}
-      to={to}
-      preload="intent"
-      sx={linkSx}
-    >
+    <Box component={Link} to={to} preload="intent" sx={linkSx}>
       {content}
     </Box>
   );

@@ -74,13 +74,13 @@ export function VideoSidebarCard({ video }: VideoSidebarCardProps) {
         )}
         <Box sx={{ mt: 0.25, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
           {video.actors?.map((a) => (
-            <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" />
+            <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" disableLink />
           ))}
           {video.creators?.map((c) => (
-            <EntityPreview key={c.id} entityType="creator" entity={c} size="sm" />
+            <EntityPreview key={c.id} entityType="creator" entity={c} size="sm" disableLink />
           ))}
           {video.tags?.map((t) => (
-            <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />
+            <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" disableLink />
           ))}
         </Box>
       </Box>

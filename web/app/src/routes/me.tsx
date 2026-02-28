@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Box, Paper, Typography, Button, CircularProgress, Pagination } from '@mui/material';
 import { User, LogOut, ExternalLink } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -28,6 +28,78 @@ function formatDuration(seconds?: number | null): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+interface VideoCollectionSectionProps {
+  title: string;
+  total: number;
+  loading: boolean;
+  emptyText: string;
+  totalPages: number;
+  page: number;
+  onPageChange: (page: number) => void;
+  children: ReactNode;
+}
+
+function VideoCollectionSection({
+  title,
+  total,
+  loading,
+  emptyText,
+  totalPages,
+  page,
+  onPageChange,
+  children,
+}: VideoCollectionSectionProps) {
+  return (
+    <Paper
+      sx={{
+        p: { xs: 2, md: 3 },
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1.5, mb: 1.5 }}>
+        <Typography variant="h6" fontWeight={600}>
+          {title}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          共 {total} 条
+        </Typography>
+      </Box>
+
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 5, flex: 1 }}>
+          <CircularProgress size={26} />
+        </Box>
+      ) : total === 0 ? (
+        <Box sx={{ py: 4, flex: 1 }}>
+          <Typography color="text.secondary">{emptyText}</Typography>
+        </Box>
+      ) : (
+        <>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(auto-fill, minmax(140px, 1fr))',
+                sm: 'repeat(auto-fill, minmax(170px, 1fr))',
+              },
+              gap: { xs: 1.5, md: 2 },
+            }}
+          >
+            {children}
+          </Box>
+          {totalPages > 1 ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2.5 }}>
+              <Pagination count={totalPages} page={page} onChange={(_, nextPage) => onPageChange(nextPage)} />
+            </Box>
+          ) : null}
+        </>
+      )}
+    </Paper>
+  );
 }
 
 function MePage() {
@@ -68,8 +140,10 @@ function MePage() {
   }
   const favorites = favoritesData?.items ?? [];
   const historyItems = historyData?.items ?? [];
-  const favoritePages = Math.max(1, Math.ceil((favoritesData?.total ?? 0) / pageSize));
-  const historyPages = Math.max(1, Math.ceil((historyData?.total ?? 0) / pageSize));
+  const favoritesTotal = favoritesData?.total ?? 0;
+  const historyTotal = historyData?.total ?? 0;
+  const favoritePages = Math.max(1, Math.ceil(favoritesTotal / pageSize));
+  const historyPages = Math.max(1, Math.ceil(historyTotal / pageSize));
 
   return (
     <Box>
@@ -109,86 +183,50 @@ function MePage() {
         </Box>
       </Paper>
 
-      <Paper sx={{ p: 3, mt: 2 }}>
-        <Typography variant="h6" fontWeight={600} gutterBottom>
-          收藏夹
-        </Typography>
-        {favoritesLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={26} />
-          </Box>
-        ) : favorites.length === 0 ? (
-          <Typography color="text.secondary">还没有收藏视频</Typography>
-        ) : (
-          <>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: {
-                  xs: 'repeat(2, 1fr)',
-                  sm: 'repeat(3, 1fr)',
-                  md: 'repeat(4, 1fr)',
-                  lg: 'repeat(5, 1fr)',
-                },
-                gap: 2,
-              }}
-            >
-              {favorites.map((video) => (
-                <VideoCard key={video.id} video={video} />
-              ))}
-            </Box>
-            {favoritePages > 1 ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                <Pagination count={favoritePages} page={favoritesPage} onChange={(_, page) => setFavoritesPage(page)} />
-              </Box>
-            ) : null}
-          </>
-        )}
-      </Paper>
+      <Box
+        sx={{
+          mt: 2,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+          gap: { xs: 2, md: 2.5 },
+          alignItems: 'start',
+        }}
+      >
+        <VideoCollectionSection
+          title="收藏夹"
+          total={favoritesTotal}
+          loading={favoritesLoading}
+          emptyText="还没有收藏视频"
+          totalPages={favoritePages}
+          page={favoritesPage}
+          onPageChange={setFavoritesPage}
+        >
+          {favorites.map((video) => (
+            <VideoCard key={video.id} video={video} />
+          ))}
+        </VideoCollectionSection>
 
-      <Paper sx={{ p: 3, mt: 2 }}>
-        <Typography variant="h6" fontWeight={600} gutterBottom>
-          播放历史
-        </Typography>
-        {historyLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={26} />
-          </Box>
-        ) : historyItems.length === 0 ? (
-          <Typography color="text.secondary">暂无播放历史</Typography>
-        ) : (
-          <>
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: {
-                  xs: 'repeat(2, 1fr)',
-                  sm: 'repeat(3, 1fr)',
-                  md: 'repeat(4, 1fr)',
-                  lg: 'repeat(5, 1fr)',
-                },
-                gap: 2,
-              }}
-            >
-              {historyItems.map((item) => (
-                <Box key={item.video.id}>
-                  <VideoCard video={item.video} />
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                    {item.completed
-                      ? '已看完'
-                      : `看到 ${formatDuration(item.progressSeconds)} / ${formatDuration(item.durationSeconds)}`}
-                  </Typography>
-                </Box>
-              ))}
+        <VideoCollectionSection
+          title="播放历史"
+          total={historyTotal}
+          loading={historyLoading}
+          emptyText="暂无播放历史"
+          totalPages={historyPages}
+          page={historyPage}
+          onPageChange={setHistoryPage}
+        >
+          {historyItems.map((item) => (
+            <Box key={item.video.id}>
+              <VideoCard video={item.video} showActors={false} />
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, px: 0.25, display: 'block', lineHeight: 1.4 }}>
+                {item.completed
+                  ? '已看完'
+                  : `看到 ${formatDuration(item.progressSeconds)} / ${formatDuration(item.durationSeconds)}`}
+              </Typography>
             </Box>
-            {historyPages > 1 ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                <Pagination count={historyPages} page={historyPage} onChange={(_, page) => setHistoryPage(page)} />
-              </Box>
-            ) : null}
-          </>
-        )}
-      </Paper>
+          ))}
+        </VideoCollectionSection>
+      </Box>
     </Box>
   );
 }

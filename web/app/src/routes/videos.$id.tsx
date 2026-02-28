@@ -23,6 +23,8 @@ import {
   useSetVideoFavorite,
   useUpsertVideoHistory,
 } from '../hooks/useVideos';
+import type { VideoMimeType } from '@vidstack/react';
+import { useRequest } from 'ahooks';
 
 export const Route = createFileRoute('/videos/$id')({
   component: VideoDetailPage,
@@ -34,6 +36,25 @@ function toPlayableUrl(url: string): string {
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
   if (url.startsWith('/')) return `${window.location.origin}${url}`;
   return url;
+}
+
+function inferVideoMimeType(fileKey?: string | null): VideoMimeType | undefined {
+  if (!fileKey) return undefined;
+  const dot = fileKey.lastIndexOf('.');
+  if (dot < 0) return undefined;
+  const ext = fileKey.slice(dot + 1).toLowerCase();
+  const map: Record<string, VideoMimeType> = {
+    mp4: 'video/mp4',
+    m4v: 'video/mp4',
+
+    mov: 'video/mp4',
+    avi: 'video/avi',
+    webm: 'video/webm',
+
+    mpeg: 'video/mpeg',
+    mpg: 'video/mpeg',
+  };
+  return map[ext];
 }
 
 function formatDuration(seconds?: number): string {
@@ -70,7 +91,7 @@ function VideoDetailPage() {
   });
   const { data: interaction } = useVideoInteraction(isValidId ? videoId : null, isValidId && !!user);
   const setFavorite = useSetVideoFavorite(isValidId ? videoId : 0);
-  const upsertHistory = useUpsertVideoHistory(isValidId ? videoId : 0);
+  const upsertHistory = useUpsertVideoHistory(isValidId ? videoId : 0, { invalidateAfterSuccess: false });
   const lastReportedAtRef = useRef(0);
   const lastReportedSecondsRef = useRef(0);
 
@@ -87,6 +108,10 @@ function VideoDetailPage() {
   const playUrl = useMemo(
     () => (video?.videoFileUrl ? toPlayableUrl(video.videoFileUrl) : ''),
     [video]
+  );
+  const sourceType = useMemo(
+    () => inferVideoMimeType(video?.videoFileKey) ?? 'video/mp4',
+    [video?.videoFileKey]
   );
   const resumeSeconds = interaction?.history && !interaction.history.completed
     ? interaction.history.progressSeconds
@@ -105,7 +130,7 @@ function VideoDetailPage() {
     setFavorite.mutate(!interaction?.isFavorite);
   };
 
-  const handleTimeUpdate = (currentSeconds: number, durationSeconds?: number) => {
+  const { run: handleTimeUpdate } = useRequest(async (currentSeconds: number, durationSeconds?: number) => {
     if (!user || upsertHistory.isPending) return;
     const rounded = Math.floor(currentSeconds);
     if (rounded <= 0) return;
@@ -120,7 +145,10 @@ function VideoDetailPage() {
       progressSeconds: rounded,
       durationSeconds: durationSeconds != null ? Math.floor(durationSeconds) : undefined,
     });
-  };
+  }, {
+    throttleWait: 5000,
+    manual: true,
+  });
 
   const handleEnded = () => {
     if (!user) return;
@@ -164,7 +192,7 @@ function VideoDetailPage() {
           {playUrl && (
             <Box sx={{ mb: 2 }}>
               <MUIPlayer
-                url={playUrl}
+                src={{ src: playUrl, type: sourceType }}
                 fullWidth
                 initialSeekSeconds={resumeSeconds}
                 onTimeUpdate={handleTimeUpdate}
@@ -226,41 +254,41 @@ function VideoDetailPage() {
           }}
         >
           {video.creators?.length ? (
-          <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              创作者
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {video.creators.map((c) => (
-                <EntityPreview key={c.id} entityType="creator" entity={c} size="sm" />
-              ))}
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                创作者
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {video.creators.map((c) => (
+                  <EntityPreview key={c.id} entityType="creator" entity={c} size="sm" />
+                ))}
+              </Box>
+            </Paper>
+          ) : null}
+          {video.actors?.length ? (
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                演员
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1.5, justifyContent: 'flex-start' }}>
+                {video.actors.map((a) => (
+                  <EntityPreview key={a.id} entityType="actor" entity={a} size="md" layout="card" />
+                ))}
+              </Box>
+            </Paper>
+          ) : null}
+          {sidebarVideos.length > 0 ? (
+            <Box>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                推荐
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                {sidebarVideos.map((v) => (
+                  <VideoSidebarCard key={v.id} video={v} />
+                ))}
+              </Box>
             </Box>
-          </Paper>
-        ) : null}
-        {video.actors?.length ? (
-          <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              演员
-            </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1.5, justifyContent: 'flex-start' }}>
-              {video.actors.map((a) => (
-                <EntityPreview key={a.id} entityType="actor" entity={a} size="md" layout="card" />
-              ))}
-            </Box>
-          </Paper>
-        ) : null}
-        {sidebarVideos.length > 0 ? (
-          <Box>
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-              推荐
-            </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {sidebarVideos.map((v) => (
-                <VideoSidebarCard key={v.id} video={v} />
-              ))}
-            </Box>
-          </Box>
-        ) : null}
+          ) : null}
         </Box>
       )}
     </Box>

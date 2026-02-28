@@ -87,12 +87,14 @@ export function useSetVideoFavorite(videoId: number) {
   });
 }
 
-export function useUpsertVideoHistory(videoId: number) {
+export function useUpsertVideoHistory(videoId: number, options?: { invalidateAfterSuccess?: boolean }) {
   const queryClient = useQueryClient();
+  const shouldInvalidate = options?.invalidateAfterSuccess ?? true;
   return useMutation({
     mutationFn: (payload: { progressSeconds: number; durationSeconds?: number; completed?: boolean }) =>
       upsertVideoHistory(videoId, payload),
     onSuccess: () => {
+      if (!shouldInvalidate) return;
       queryClient.invalidateQueries({ queryKey: ['common', 'videos', 'interaction', videoId] });
       queryClient.invalidateQueries({ queryKey: ['common', 'videos', 'history'] });
     },

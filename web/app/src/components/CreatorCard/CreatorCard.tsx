@@ -45,12 +45,12 @@ export function CreatorCard({ creator }: CreatorCardProps) {
             )}
           </Box>
           {creator.actor && (
-            <EntityPreview entityType="actor" entity={creator.actor} size="sm" />
+            <EntityPreview entityType="actor" entity={creator.actor} size="sm" disableLink />
           )}
           {creator.tags?.length ? (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, justifyContent: 'center' }}>
               {creator.tags.map((t) => (
-                <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />
+                <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" disableLink />
               ))}
             </Box>
           ) : null}

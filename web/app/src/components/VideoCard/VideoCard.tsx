@@ -23,9 +23,10 @@ function formatFileSize(bytes?: number): string {
 
 interface VideoCardProps {
   video: VideoDetail;
+  showActors?: boolean;
 }
 
-export function VideoCard({ video }: VideoCardProps) {
+export function VideoCard({ video, showActors = true }: VideoCardProps) {
   const thumbUrl = getThumbnailUrl(video.thumbnailKey);
   const duration = formatDuration(video.videoDuration);
   const fileSize = formatFileSize(video.fileSize);
@@ -83,15 +84,15 @@ export function VideoCard({ video }: VideoCardProps) {
             </Typography>
           )}
         </Box>
-        <CardContent sx={{ py: 1.5, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
+        <CardContent sx={{ pt: 1, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
           <Typography variant="body2" fontWeight={500} noWrap title={video.title}>
             {video.title}
           </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+          {showActors && <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
             {video.actors?.map((a) => (
-              <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" />
+              <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" disableLink />
             ))}
-          </Box>
+          </Box>}
         </CardContent>
       </CardActionArea>
     </Card>

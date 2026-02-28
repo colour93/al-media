@@ -51,6 +51,7 @@ export interface VideoDetail extends Video {
   distributors?: Distributor[];
   tags?: Tag[];
   videoFileUrl?: string | null;
+  videoFileKey?: string | null;
   /** 视频时长（秒） */
   videoDuration?: number;
   /** 文件大小（字节） */

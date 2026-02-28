@@ -258,7 +258,7 @@ export function EntityPreview({ entityType, entity, size = 'sm', inline = false 
     <Box
       component={Link}
       to={ROUTES[entityType]}
-      search={(prev: Record<string, unknown>) => ({ ...prev, editId: entity.id })}
+      // search={(prev: Record<string, unknown>) => ({ ...prev, editId: entity.id })}
       sx={linkSx}
     >
       {content}
