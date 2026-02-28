@@ -18,6 +18,7 @@ import { Home, Film, User, ArrowLeft } from 'lucide-react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAuthMe } from '../../api/auth';
+import { ThemeModeButton } from '../ThemeModeButton/ThemeModeButton';
 
 const isSecondLevelPage = (pathname: string) => pathname.split('/').filter(Boolean).length >= 2;
 
@@ -64,7 +65,8 @@ export function AppLayout() {
               <Button onClick={handleBack} startIcon={<ArrowLeft size={18} />} size="small">
                 返回上一页
               </Button>
-              <Box sx={{ ml: 'auto' }}>
+              <Box sx={{ ml: 'auto', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                {isDesktop ? <ThemeModeButton /> : null}
                 {user ? (
                   <Tooltip title={user.name || user.email || '我的'}>
                     <IconButton component={Link} to="/me" color="inherit" size="small">
@@ -112,6 +114,7 @@ export function AppLayout() {
                 视频
               </Button>
               <Box sx={{ flex: 1 }} />
+              <ThemeModeButton />
               {user ? (
                 <Tooltip title={user.name || user.email || '我的'}>
                   <IconButton component={Link} to="/me" color="inherit" size="small">

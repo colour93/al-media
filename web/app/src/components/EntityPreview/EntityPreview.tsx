@@ -17,6 +17,8 @@ export interface EntityPreviewProps {
   entityType: EntityType;
   entity: Actor | Creator | Tag;
   size?: 'sm' | 'md';
+  /** inline actor 的紧凑显示模式，适合卡片内密集信息 */
+  compact?: boolean;
   /** actor 专用：'card' 为头像上、名字下的布局。双行名字仅在此模式下启用 */
   layout?: 'inline' | 'card';
   /** 在外层已是链接时禁用内部跳转，避免出现 <a> 嵌套 */
@@ -27,6 +29,7 @@ export function EntityPreview({
   entityType,
   entity,
   size = 'sm',
+  compact = false,
   layout = 'inline',
   disableLink = false,
 }: EntityPreviewProps) {
@@ -49,12 +52,18 @@ export function EntityPreview({
     : {
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 0.5,
+        gap: compact && entityType === 'actor' ? { xs: 0.25, sm: 0.35 } : 0.5,
         textDecoration: 'none',
         color: 'inherit',
         borderRadius: 1,
-        px: size === 'sm' ? 0.5 : 1,
-        py: 0.25,
+        px:
+          compact && entityType === 'actor'
+            ? { xs: 0.25, sm: 0.35 }
+            : size === 'sm'
+              ? 0.5
+              : 1,
+        py: compact && entityType === 'actor' ? 0.125 : 0.25,
+        minWidth: 0,
         '&:hover': { bgcolor: 'action.hover' },
       };
 
@@ -62,7 +71,15 @@ export function EntityPreview({
     switch (entityType) {
       case 'actor': {
         const a = entity as Actor;
-        const avatarSize = isCard ? 40 : size === 'sm' ? 24 : 32;
+        const avatarSize = isCard
+          ? 40
+          : compact
+            ? size === 'sm'
+              ? { xs: 18, sm: 20 }
+              : { xs: 20, sm: 24 }
+            : size === 'sm'
+              ? 24
+              : 32;
         return (
           <>
             {a.avatarKey ? (
@@ -103,7 +120,16 @@ export function EntityPreview({
                       overflow: 'hidden',
                       textAlign: 'center',
                     }
-                  : { maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+                  : compact
+                    ? {
+                        maxWidth: { xs: 64, sm: 84 },
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: { xs: '0.68rem', sm: '0.72rem' },
+                        lineHeight: 1.2,
+                      }
+                    : { maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
               }
               title={a.name}
             >

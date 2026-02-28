@@ -33,7 +33,7 @@ export function VideoCard({ video, showActors = true }: VideoCardProps) {
       preload="intent"
       sx={{
         width: '100%',
-        aspectRatio: '1/0.9',
+        aspectRatio: { xs: '1/0.94', sm: '1/0.9' },
         textDecoration: 'none',
         color: 'inherit',
         display: 'flex',
@@ -45,7 +45,7 @@ export function VideoCard({ video, showActors = true }: VideoCardProps) {
         <Box
           sx={{
             position: 'relative',
-            aspectRatio: '16/9',
+            aspectRatio: { xs: '16/8.8', sm: '16/9' },
             flexShrink: 0,
             overflow: 'hidden',
           }}
@@ -97,15 +97,26 @@ export function VideoCard({ video, showActors = true }: VideoCardProps) {
             </Typography>
           )}
         </Box>
-        <CardContent sx={{ pt: 1, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
+        <CardContent sx={{ py: 1, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
           <Typography variant="body2" fontWeight={500} noWrap title={video.title}>
             {video.title}
           </Typography>
-          {showActors && <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-            {video.actors?.map((a) => (
-              <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" disableLink />
-            ))}
-          </Box>}
+          {showActors && (
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                columnGap: { xs: 0.25, sm: 0.5 },
+                rowGap: { xs: 0.125, sm: 0.25 },
+                mt: { xs: 0.375, sm: 0.5 },
+              }}
+            >
+              {video.actors?.map((a) => (
+                <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" compact disableLink />
+              ))}
+            </Box>
+          )}
         </CardContent>
       </CardActionArea>
     </Card>

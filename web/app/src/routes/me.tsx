@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { type ReactNode, useState } from 'react';
-import { Box, Paper, Typography, Button, CircularProgress, Pagination } from '@mui/material';
+import { type MouseEvent, type ReactNode, useState } from 'react';
+import { Box, Paper, Typography, Button, CircularProgress, Pagination, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { User, LogOut, ExternalLink } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -9,6 +9,7 @@ import { fetchCommonMetadata } from '../api/metadata';
 import { VideoCard } from '../components/VideoCard/VideoCard';
 import { useFavoriteVideos, useWatchHistory } from '../hooks/useVideos';
 import { formatDurationFromSeconds } from '../utils/format';
+import { type ThemePreference, useThemeMode } from '../contexts/ThemeModeContext';
 
 export const Route = createFileRoute('/me')({
   beforeLoad: async () => {
@@ -98,6 +99,7 @@ function MePage() {
   const pageSize = 12;
   const [favoritesPage, setFavoritesPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
+  const { preference, setPreference } = useThemeMode();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: user } = useQuery({
@@ -136,6 +138,10 @@ function MePage() {
   const historyTotal = historyData?.total ?? 0;
   const favoritePages = Math.max(1, Math.ceil(favoritesTotal / pageSize));
   const historyPages = Math.max(1, Math.ceil(historyTotal / pageSize));
+  const handleThemeChange = (_: MouseEvent<HTMLElement>, next: ThemePreference | null) => {
+    if (!next) return;
+    setPreference(next);
+  };
 
   return (
     <Box>
@@ -172,6 +178,28 @@ function MePage() {
               退出登录
             </Button>
           </Box>
+        </Box>
+        <Box
+          sx={{
+            mt: 2,
+            pt: 2,
+            borderTop: 1,
+            borderColor: 'divider',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
+            flexWrap: 'wrap',
+          }}
+        >
+          <Typography variant="body2" color="text.secondary">
+            主题模式
+          </Typography>
+          <ToggleButtonGroup size="small" exclusive value={preference} onChange={handleThemeChange}>
+            <ToggleButton value="system">系统</ToggleButton>
+            <ToggleButton value="light">浅色</ToggleButton>
+            <ToggleButton value="dark">深色</ToggleButton>
+          </ToggleButtonGroup>
         </Box>
       </Paper>
 

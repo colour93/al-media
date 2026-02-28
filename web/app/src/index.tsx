@@ -2,8 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import { router } from './router';
+import { ThemeModeProvider } from './contexts/ThemeModeContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -14,20 +14,15 @@ const queryClient = new QueryClient({
   },
 });
 
-const theme = createTheme({
-  palette: { mode: 'light' },
-});
-
 const rootEl = document.getElementById('root');
 if (rootEl) {
   const root = ReactDOM.createRoot(rootEl);
   root.render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
+        <ThemeModeProvider>
           <RouterProvider router={router} />
-        </ThemeProvider>
+        </ThemeModeProvider>
       </QueryClientProvider>
     </React.StrictMode>,
   );

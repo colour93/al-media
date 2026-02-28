@@ -28,6 +28,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { logout } from '../../api/auth';
 import { useSidebarStore } from '../../stores/sidebar';
+import { ThemeModeButton } from '../ThemeModeButton/ThemeModeButton';
 
 const DRAWER_WIDTH = 180;
 const TOOLBAR_HEIGHT = '64px';
@@ -142,6 +143,7 @@ export function AdminLayout() {
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             视频平台管理
           </Typography>
+          <ThemeModeButton />
           <IconButton color="inherit" onClick={handleLogout} aria-label="退出登录">
             <LogOut size={22} />
           </IconButton>
