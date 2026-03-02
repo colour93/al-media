@@ -321,19 +321,22 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
     "/infer-video-info",
     async ({ body, set }) => {
       const filename = body.filename;
+      const fileKey = body.fileKey?.trim() || undefined;
       if (!filename) {
         set.status = 400;
         return { message: "文件名必填" };
       }
       const info = await videosService.inferVideoInfo(filename, {
         source: "admin-infer-preview",
-        target: filename,
+        target: fileKey ?? filename,
+        fileKey,
       });
       return info;
     },
     {
       body: t.Object({
         filename: t.String(),
+        fileKey: t.Optional(t.String()),
       }),
     }
   );

@@ -850,8 +850,15 @@ class VideosService {
     return rows[0] ?? null;
   }
 
-  private async inferVideoInfoInternal(filename: string): Promise<InferVideoInfoResult> {
-    const hints = await this.findMatchedHints(filename);
+  private async inferVideoInfoInternal(
+    filename: string,
+    options?: {
+      fileKey?: string;
+    }
+  ): Promise<InferVideoInfoResult> {
+    const fileKey = options?.fileKey?.trim() || "";
+    const hintSource = fileKey ? `${fileKey} ${filename}` : filename;
+    const hints = await this.findMatchedHints(hintSource);
     const hintLines: string[] = [];
     if (hints.creatorGroups.length) {
       hintLines.push(`- 候选团体创作者: ${hints.creatorGroups.join(", ")}`);
@@ -869,7 +876,7 @@ class VideosService {
       ? `\n\n文件名候选匹配（数据库模糊查询确认，仅供参考）：\n${hintLines.join("\n")}`
       : "";
 
-    const systemPrompt = `你是一个助手，从视频文件名中提取结构化信息。严格按以下规则执行。
+    const systemPrompt = `你是一个助手，从视频文件名中提取结构化信息。你还会收到 fileKey（完整相对路径）作为辅助上下文。严格按以下规则执行。
 
 【重要】对于未能从文件名中有效提取到的信息，必须留空或置 null，禁止猜测、编造或随意填写。宁可留空也不要填入不确定的内容。
 
@@ -878,13 +885,20 @@ class VideosService {
 2. 若 creator 以 @ 开头或包含 onlyfans、justforfans、fansone（不区分大小写），则为 person
 3. 若上述平台关键词存在但无法识别有效创作者，creator 设为 null，放入 distributors
 4. creator 和 distributor 名称不要包含方括号 []
-5. distributors、actors 若无法明确识别则返回空数组 []，不要填入不确定的项${hintBlock}`;
+5. distributors、actors 若无法明确识别则返回空数组 []，不要填入不确定的项
+6. 可以参考 fileKey 的目录信息辅助判断，但优先以文件名主体为准，不要把纯路径层级名机械当作标题${hintBlock}`;
 
     const completion = await this.openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `请从以下文件名提取信息：\n\n${filename}` },
+        {
+          role: "user",
+          content:
+            `请根据以下信息提取：\n\n` +
+            `filename: ${filename}\n` +
+            `fileKey: ${fileKey || "(未提供)"}`,
+        },
       ],
       tools: [extractVideoInfoTool],
       tool_choice: { type: "function", function: { name: "extract_video_info" } },
@@ -916,11 +930,14 @@ class VideosService {
     options?: {
       source?: VideoInferTaskSource;
       target?: string;
+      fileKey?: string;
     }
   ): Promise<InferVideoInfoResult> {
     const source = options?.source ?? "admin-infer-preview";
     const target = options?.target ?? filename;
-    return this.enqueueInferTask(source, target, () => this.inferVideoInfoInternal(filename));
+    return this.enqueueInferTask(source, target, () =>
+      this.inferVideoInfoInternal(filename, { fileKey: options?.fileKey })
+    );
   }
 
   private async applyInferredInfo(
@@ -1010,6 +1027,7 @@ class VideosService {
       inferredInfo = await this.inferVideoInfo(basename(videoFile.fileKey), {
         source: "video-auto-extract",
         target: videoFile.fileKey,
+        fileKey: videoFile.fileKey,
       });
     }
 
@@ -1071,6 +1089,7 @@ class VideosService {
     const info = await this.inferVideoInfo(basename(videoFile.fileKey), {
       source: "video-re-extract",
       target: `video:${videoId}:${videoFile.fileKey}`,
+      fileKey: videoFile.fileKey,
     });
     const video = await db.transaction(async (tx) => {
       await this.applyInferredInfo(tx, videoId, info);
