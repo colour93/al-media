@@ -174,7 +174,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
       sub: identifier,
     });
 
-    const secure = process.env.NODE_ENV === "production";
+    const secure = process.env["NODE_ENV"] === "production";
     const domain = process.env.COOKIE_DOMAIN ? `; Domain=${process.env.COOKIE_DOMAIN}` : "";
     const sessionCookie = `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${60 * 60 * 24 * 7}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}${domain}`;
     const pkceClearCookie = `${PKCE_COOKIE}=; Path=/; Max-Age=0`;
@@ -207,7 +207,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
     };
   })
   .post("/logout", ({ set }) => {
-    const secure = process.env.NODE_ENV === "production";
+    const secure = process.env["NODE_ENV"] === "production";
     const domain = process.env.COOKIE_DOMAIN ? `; Domain=${process.env.COOKIE_DOMAIN}` : "";
     set.headers["Set-Cookie"] = `${SESSION_COOKIE}=; Path=/; Max-Age=0${secure ? "; Secure" : ""}${domain}`;
     return { success: true };

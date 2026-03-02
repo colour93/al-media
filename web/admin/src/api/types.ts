@@ -98,6 +98,44 @@ export interface VideoFile {
   thumbnailKey?: string | null;
 }
 
+export type VideoFileScanTaskStatus =
+  | 'pending'
+  | 'paused'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'aborted'
+  | 'stopped';
+
+export interface VideoFileScanTask {
+  dir: { id: number; path: string };
+  currentFile: string | null;
+  currentFileCount: number;
+  totalFileCount: number;
+  status: VideoFileScanTaskStatus;
+  error: string | null;
+  force: boolean;
+}
+
+export type VideoFileIndexStrategyMode = 'blacklist';
+
+export interface VideoFileIndexStrategy {
+  id: number;
+  mode: VideoFileIndexStrategyMode;
+  fileDirId: number | null;
+  fileKeyRegex: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  fileDir?: { path: string } | null;
+}
+
+export interface ApplyVideoFileIndexStrategyResult {
+  strategyId: number;
+  removed: number;
+  fileIds: number[];
+}
+
 export interface Video {
   id: number;
   title: string;

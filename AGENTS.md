@@ -39,7 +39,11 @@
 - `src/services/videoFileManager.ts`
   - 目录 watcher（chokidar）
   - 扫描任务（start/pause/resume/stop/cancel）
+  - 扫描任务状态快照（用于管理端进度面板）
+  - 强制重索引（force）与索引策略命中过滤
   - 文件变化自动入库、自动建视频、自动应用绑定策略
+- `src/services/videoFileIndexStrategies.ts`
+  - 索引策略（默认 blacklist 正则）CRUD 与应用清理（从 `video_files` 移除）
 - `src/utils/file.ts`
   - `getFileUniqueId`：头/25%/50%/75%/尾分块 + 文件大小 hash
 - `src/services/ffmpegManager.ts`
@@ -99,6 +103,7 @@
 
 ### 1) 调整“文件扫描/去重/自动入库”
 - `src/services/videoFileManager.ts`
+- `src/services/videoFileIndexStrategies.ts`
 - `src/utils/file.ts`
 - `src/services/ffmpegManager.ts`
 - `src/services/fileDirs.ts`
@@ -149,11 +154,13 @@
 
 ## 环境变量（后端）
 - 数据库：`DATABASE_URL`
+- 数据库迁移：`MIGRATIONS_DIR`
 - 服务地址：`PORT`、`BASE_URL`、`API_BASE_URL`、`APP_URL`、`ADMIN_APP_URL`
 - 登录鉴权：`REQUIRE_LOGIN`、`JWT_SECRET`、`COOKIE_DOMAIN`
 - OIDC：`OIDC_ISSUER`、`OIDC_CLIENT_ID`、`OIDC_CLIENT_SECRET`、`OIDC_REDIRECT_URI`、`OIDC_ROLE_CLAIM`
 - 文件与签名：`DATA_PATH`、`FILE_SIGN_SECRET`
 - 视频处理：`THUMBNAIL_SEEK_SEC`、`THUMBNAIL_WIDTH`、`FFMPEG_BIN`、`FFPROBE_BIN`
+- 文件监听：`FILE_WATCH_USE_POLLING`、`FILE_WATCH_INTERVAL`
 - LLM：`OPENAI_API_KEY`、`OPENAI_BASE_URL`
 
 前端变量：

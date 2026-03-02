@@ -40,6 +40,8 @@
 ## API 模块索引
 - `src/api/videos.ts` 对应 `/api/admin/videos/*`
 - `src/api/videoFiles.ts` 对应 `/api/admin/video-files/*`
+  - 包含索引任务控制（`/scan/*`、`/scan-task`）
+  - 包含索引策略（`/index-strategies/*`）
 - `src/api/bindingStrategies.ts` 对应 `/api/admin/binding-strategies/*`
 - `src/api/fileDirs.ts` 对应 `/api/admin/file-dirs/*`
 - `src/api/tags.ts` 对应 `/api/admin/tags/*`
@@ -61,6 +63,8 @@
 - 页面：`src/routes/video-files.tsx`
 - 数据：`src/hooks/useVideoFiles.ts`
 - API：`src/api/videoFiles.ts`、`src/api/videos.ts`
+  - 索引任务进度面板与控制（开始/强制重索引/暂停/继续/停止/取消）
+  - 索引策略（黑名单正则）管理与应用清理
 
 ### 3) 绑定策略（folder/regex + apply）
 - 页面：`src/routes/strategies.tsx`

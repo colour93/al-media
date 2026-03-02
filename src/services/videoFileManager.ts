@@ -13,6 +13,7 @@ import { videoUniqueContentsTable } from "../entities/VideoUniqueContent";
 import { ffmpegManager } from "./ffmpegManager";
 import { videoFileUniquesTable } from "../entities/VideoFileUnique";
 import { fileManager, FileCategory } from "./fileManager";
+import { videoFileIndexStrategiesService } from "./videoFileIndexStrategies";
 
 const ALLOWED_EXT = new Set([
   ".mp4",
@@ -26,18 +27,48 @@ const ALLOWED_EXT = new Set([
   ".m4a",
 ]);
 
+const FILE_WATCH_USE_POLLING =
+  process.env.FILE_WATCH_USE_POLLING === "true" || process.env.FILE_WATCH_USE_POLLING === "1";
+const FILE_WATCH_INTERVAL_RAW = process.env.FILE_WATCH_INTERVAL ? Number(process.env.FILE_WATCH_INTERVAL) : undefined;
+const FILE_WATCH_INTERVAL =
+  FILE_WATCH_INTERVAL_RAW && Number.isFinite(FILE_WATCH_INTERVAL_RAW) && FILE_WATCH_INTERVAL_RAW > 0
+    ? Math.round(FILE_WATCH_INTERVAL_RAW)
+    : undefined;
+
 interface VideoFileDir {
   id: number;
   path: string;
 }
+
+type ScanTaskStatus = "pending" | "paused" | "processing" | "completed" | "failed" | "aborted" | "stopped";
+
+type ProcessFileOptions = {
+  force?: boolean;
+};
+
+type StartScanTaskOptions = {
+  force?: boolean;
+  waitForCompletion?: boolean;
+};
+
+export type VideoFileScanTaskSnapshot = {
+  dir: VideoFileDir;
+  currentFile: string | null;
+  currentFileCount: number;
+  totalFileCount: number;
+  status: ScanTaskStatus;
+  error: string | null;
+  force: boolean;
+};
 
 class VideoFileDirScanTask {
   public dir: VideoFileDir;
   public currentFile: string | null;
   public currentFileCount: number;
   public totalFileCount: number;
-  public status: "pending" | "paused" | "processing" | "completed" | "failed" | "aborted" | "stopped";
+  public status: ScanTaskStatus;
   public error: Error | null;
+  public force: boolean;
   private logger = createLogger("video-file-scan-task");
   private runPromise: Promise<void> | null = null;
   private pausePromise: Promise<void> | null = null;
@@ -46,13 +77,18 @@ class VideoFileDirScanTask {
   private cancelRequested = false;
   private readonly fileProcessor: (dir: VideoFileDir, relativePath: string) => Promise<boolean>;
 
-  constructor(dir: VideoFileDir, fileProcessor: (dir: VideoFileDir, relativePath: string) => Promise<boolean>) {
+  constructor(
+    dir: VideoFileDir,
+    fileProcessor: (dir: VideoFileDir, relativePath: string) => Promise<boolean>,
+    force = false
+  ) {
     this.dir = dir;
     this.fileProcessor = fileProcessor;
     this.currentFile = null;
     this.currentFileCount = 0;
     this.status = "pending";
     this.error = null;
+    this.force = force;
     this.totalFileCount = 0;
     getFileCount(dir.path, ALLOWED_EXT).then(count => {
       this.totalFileCount = count;
@@ -211,6 +247,52 @@ class VideoFileManager {
 
   public scanTask: VideoFileDirScanTask | null = null;
 
+  private scanTaskRunPromise: Promise<void> | null = null;
+
+  private initScanSequence = 0;
+
+  private isAllowedVideoPath(path: string): boolean {
+    return ALLOWED_EXT.has(extname(path).toLowerCase());
+  }
+
+  private shouldIgnoreWatchPath(path: string, stats?: { isDirectory(): boolean }): boolean {
+    if (stats?.isDirectory()) return false;
+    return !this.isAllowedVideoPath(path);
+  }
+
+  private createWatcher(dir: string, usePolling: boolean): FSWatcher {
+    const watcher = chokidar.watch(dir, {
+      ignoreInitial: true,
+      persistent: true,
+      ignorePermissionErrors: true,
+      usePolling,
+      interval: FILE_WATCH_INTERVAL,
+      binaryInterval: FILE_WATCH_INTERVAL,
+      ignored: (path, stats) => this.shouldIgnoreWatchPath(path, stats as { isDirectory(): boolean } | undefined),
+    });
+    watcher.on("add", path => this.handleFileChange(path));
+    watcher.on("change", path => this.handleFileChange(path));
+    watcher.on("unlink", path => this.handleFileDelete(path));
+    watcher.on("error", (error) => {
+      const err = error as NodeJS.ErrnoException;
+      const code = err.code;
+      if (!usePolling && (code === "EINVAL" || code === "ENOSYS")) {
+        this.logger.warn(`目录监听不支持原生 watch，回退轮询: ${dir}, code=${code}`);
+        this.watchers.delete(dir);
+        watcher.close().catch(() => undefined);
+        try {
+          const fallback = this.createWatcher(dir, true);
+          this.watchers.set(dir, fallback);
+        } catch (fallbackError) {
+          this.logger.error(fallbackError, `目录监听回退失败: ${dir}`);
+        }
+        return;
+      }
+      this.logger.error(error, `目录监听异常: ${dir}`);
+    });
+    return watcher;
+  }
+
   private async findDirByPath(path: string): Promise<VideoFileDir | null> {
     const dirs = await db.select().from(fileDirsTable).where(eq(fileDirsTable.enabled, true));
     let matched: VideoFileDir | null = null;
@@ -223,16 +305,36 @@ class VideoFileManager {
     return matched;
   }
 
-  async processFile(dir: VideoFileDir, relativePath: string): Promise<boolean> {
-    if (!ALLOWED_EXT.has(extname(relativePath))) return true;
+  async processFile(dir: VideoFileDir, relativePath: string, options: ProcessFileOptions = {}): Promise<boolean> {
+    if (!this.isAllowedVideoPath(relativePath)) return true;
     const path = join(dir.path, relativePath);
     this.logger.debug(`开始处理文件: ${relativePath}`);
     const record = await db.query.videoFilesTable.findFirst({
       where: and(eq(videoFilesTable.fileKey, relativePath), eq(videoFilesTable.fileDirId, dir.id)),
     });
 
+    const matchedIndexStrategy = await videoFileIndexStrategiesService.findMatchingEnabledStrategy(dir.id, relativePath);
+    if (matchedIndexStrategy) {
+      if (record) {
+        await db
+          .delete(videoFilesTable)
+          .where(and(eq(videoFilesTable.fileKey, relativePath), eq(videoFilesTable.fileDirId, dir.id)));
+        this.logger.debug(
+          `命中索引黑名单策略，已移除索引记录: ${path}, strategyId=${matchedIndexStrategy.id}`
+        );
+      } else {
+        this.logger.debug(`命中索引黑名单策略，跳过索引: ${path}, strategyId=${matchedIndexStrategy.id}`);
+      }
+      return true;
+    }
+
     const { size, mtime } = await stat(path);
-    if (record && size === Number(record.fileSize) && mtime.getTime() === record.fileModifiedAt.getTime()) {
+    if (
+      !options.force &&
+      record &&
+      size === Number(record.fileSize) &&
+      mtime.getTime() === record.fileModifiedAt.getTime()
+    ) {
       this.logger.debug(`文件未变更，跳过文件: ${path}`);
       return true;
     }
@@ -245,6 +347,7 @@ class VideoFileManager {
       return false;
     }
 
+    let videoFileId: number | null = null;
     try {
       await db.transaction(async (tx) => {
         let unique = await tx.query.videoFileUniquesTable.findFirst({
@@ -254,21 +357,43 @@ class VideoFileManager {
           const created = await tx.insert(videoFileUniquesTable).values({ uniqueId }).returning();
           unique = created[0];
         }
-        await tx
-          .insert(videoFilesTable)
-          .values({
-            fileKey: relativePath,
-            uniqueId: unique.uniqueId,
-            fileSize: size,
-            fileModifiedAt: mtime,
-            fileDirId: dir.id,
-            videoDuration: Math.round(durationSeconds),
-          })
-          .returning({ id: videoFilesTable.id });
+        if (record) {
+          const updated = await tx
+            .update(videoFilesTable)
+            .set({
+              fileKey: relativePath,
+              uniqueId: unique.uniqueId,
+              fileSize: size,
+              fileModifiedAt: mtime,
+              fileDirId: dir.id,
+              videoDuration: Math.round(durationSeconds),
+              updatedAt: new Date(),
+            })
+            .where(eq(videoFilesTable.id, record.id))
+            .returning({ id: videoFilesTable.id });
+          videoFileId = updated[0]?.id ?? null;
+        } else {
+          const created = await tx
+            .insert(videoFilesTable)
+            .values({
+              fileKey: relativePath,
+              uniqueId: unique.uniqueId,
+              fileSize: size,
+              fileModifiedAt: mtime,
+              fileDirId: dir.id,
+              videoDuration: Math.round(durationSeconds),
+            })
+            .returning({ id: videoFilesTable.id });
+          videoFileId = created[0]?.id ?? null;
+        }
       });
     } catch (error) {
       this.logger.error(error, `写入数据库失败: ${path}, fileDirId=${dir.id}`);
       throw error;
+    }
+    if (videoFileId == null) {
+      this.logger.warn(`写入数据库未返回视频文件 ID: ${path}, fileDirId=${dir.id}`);
+      return false;
     }
 
     const thumbBuf = await ffmpegManager.generateThumbnail(path);
@@ -291,10 +416,7 @@ class VideoFileManager {
     }
 
     const videoFile = await db.query.videoFilesTable.findFirst({
-      where: and(
-        eq(videoFilesTable.fileKey, relativePath),
-        eq(videoFilesTable.fileDirId, dir.id)
-      ),
+      where: eq(videoFilesTable.id, videoFileId),
     });
     if (videoFile?.fileDirId != null) {
       const content = await db.query.videoUniqueContentsTable.findFirst({
@@ -323,7 +445,7 @@ class VideoFileManager {
   }
 
   async handleFileChange(path: string) {
-    if (!ALLOWED_EXT.has(extname(path))) return;
+    if (!this.isAllowedVideoPath(path)) return;
     this.logger.debug(`文件变更: ${path}`);
     const dir = await this.findDirByPath(path);
     if (!dir) {
@@ -335,7 +457,7 @@ class VideoFileManager {
   }
 
   async handleFileDelete(path: string) {
-    if (!ALLOWED_EXT.has(extname(path))) return;
+    if (!this.isAllowedVideoPath(path)) return;
     this.logger.debug(`文件删除: ${path}`);
     const dir = await this.findDirByPath(path);
     if (!dir) {
@@ -355,14 +477,23 @@ class VideoFileManager {
 
     const toAddWatcherDirs = dirs.filter(dir => !this.watchers.has(dir));
     for (const dir of toAddWatcherDirs) {
-      const watcher = chokidar.watch(dir, {
-        ignoreInitial: true,
-        persistent: true,
-      });
-      watcher.on("add", path => this.handleFileChange(path));
-      watcher.on("change", path => this.handleFileChange(path));
-      watcher.on("unlink", path => this.handleFileDelete(path));
-      this.watchers.set(dir, watcher);
+      try {
+        const watcher = this.createWatcher(dir, FILE_WATCH_USE_POLLING);
+        this.watchers.set(dir, watcher);
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (!FILE_WATCH_USE_POLLING && (err.code === "EINVAL" || err.code === "ENOSYS")) {
+          this.logger.warn(`目录监听创建失败，尝试轮询模式: ${dir}, code=${err.code}`);
+          try {
+            const pollingWatcher = this.createWatcher(dir, true);
+            this.watchers.set(dir, pollingWatcher);
+          } catch (fallbackError) {
+            this.logger.error(fallbackError, `目录监听创建失败(轮询): ${dir}`);
+          }
+        } else {
+          this.logger.error(error, `目录监听创建失败: ${dir}`);
+        }
+      }
     }
   }
 
@@ -391,12 +522,46 @@ class VideoFileManager {
     };
   }
 
-  async startScanTask(dir: VideoFileDir) {
-    if (this.scanTask && (this.scanTask.status === "processing" || this.scanTask.status === "paused")) {
+  private hasRunningTask() {
+    return !!this.scanTask && (this.scanTask.status === "processing" || this.scanTask.status === "paused");
+  }
+
+  getScanTaskSnapshot(): VideoFileScanTaskSnapshot | null {
+    const task = this.scanTask;
+    if (!task) return null;
+    return {
+      dir: task.dir,
+      currentFile: task.currentFile,
+      currentFileCount: task.currentFileCount,
+      totalFileCount: task.totalFileCount,
+      status: task.status,
+      error: task.error?.message ?? null,
+      force: task.force,
+    };
+  }
+
+  async startScanTask(dir: VideoFileDir, options: StartScanTaskOptions = {}) {
+    if (this.hasRunningTask()) {
       throw new Error("任务正在运行中");
     }
-    this.scanTask = new VideoFileDirScanTask(dir, this.processFile.bind(this));
-    await this.scanTask.start();
+    const force = options.force ?? false;
+    this.scanTask = new VideoFileDirScanTask(
+      dir,
+      (scanDir, relativePath) => this.processFile(scanDir, relativePath, { force }),
+      force
+    );
+    this.scanTaskRunPromise = this.scanTask.start();
+    if (options.waitForCompletion) {
+      await this.scanTaskRunPromise;
+    }
+    return this.getScanTaskSnapshot();
+  }
+
+  async startScanTaskByDirId(fileDirId: number, options: StartScanTaskOptions = {}) {
+    const dirs = await this.getDirs();
+    const dir = dirs.find((item) => item.id === fileDirId);
+    if (!dir) throw new Error("目录不存在或未启用");
+    return this.startScanTask(dir, options);
   }
 
   pauseScanTask() {
@@ -415,15 +580,30 @@ class VideoFileManager {
     this.scanTask?.cancel();
   }
 
+  private async runInitScan(dirs: VideoFileDir[], sequence: number) {
+    for (const dir of dirs) {
+      if (sequence !== this.initScanSequence) return;
+      if (this.hasRunningTask()) {
+        this.logger.info("已有运行中的索引任务，跳过自动索引");
+        return;
+      }
+      try {
+        await this.startScanTask(dir, { waitForCompletion: true, force: false });
+      } catch (error) {
+        this.logger.error(error, `自动索引目录失败: ${dir.path}`);
+      }
+    }
+  }
+
   async init() {
-    const dirs = await this.getDirs()
+    const dirs = await this.getDirs();
 
     this.logger.info(`监听目录数量：${dirs.length}`);
 
-    this.initWatchers(dirs.map(dir => dir.path));
-    for (const dir of dirs) {
-      this.startScanTask(dir);
-    }
+    await this.initWatchers(dirs.map((dir) => dir.path));
+    this.initScanSequence += 1;
+    const sequence = this.initScanSequence;
+    void this.runInitScan(dirs, sequence);
   }
 }
 

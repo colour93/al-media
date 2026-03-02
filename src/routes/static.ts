@@ -5,8 +5,8 @@ import { createLogger } from "../utils/logger";
 
 const logger = createLogger("static");
 
-const APP_DIST_CANDIDATES = ["web/app", "dist/public/app"];
-const ADMIN_DIST_CANDIDATES = ["web/admin", "dist/public/admin"];
+const APP_DIST_CANDIDATES = ["web/app/dist", "dist/public/app"];
+const ADMIN_DIST_CANDIDATES = ["web/admin/dist", "dist/public/admin"];
 
 function resolveDistDir(envPath: string | undefined, candidates: string[]): string {
   const list = envPath ? [envPath, ...candidates] : candidates;

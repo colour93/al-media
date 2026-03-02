@@ -1,0 +1,48 @@
+name: al-media
+
+x-app-common: &app-common
+  restart: unless-stopped
+  env_file:
+    - .env
+  ports:
+    - "39994:39994"
+  environment:
+    NODE_ENV: "production"
+    PORT: "39994"
+    DATA_PATH: "data"
+    MIGRATIONS_DIR: "drizzle"
+  volumes:
+    - ./data:/app/data
+
+services:
+  app:
+    <<: *app-common
+    # Option A: use the default image (ffmpeg/ffprobe included).
+    image: colour93/al-media:latest
+    # Option B: build from local Dockerfile.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+
+  # Optional slim runtime image without ffmpeg/ffprobe.
+  # Start with:
+  # docker compose --profile slim up -d app-slim
+  app-slim:
+    <<: *app-common
+    profiles: ["slim"]
+    image: colour93/al-media:slim
+    # Option B: build from local Dockerfile.slim.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.slim
+    environment:
+      NODE_ENV: "production"
+      PORT: "39994"
+      DATA_PATH: "data"
+      # Set binary paths when ffmpeg/ffprobe are not on PATH.
+      FFMPEG_BIN: "/opt/ffmpeg/ffmpeg"
+      FFPROBE_BIN: "/opt/ffmpeg/ffprobe"
+    volumes:
+      - ./data:/app/data
+      # Mount your ffmpeg binaries (and required runtime libs) here.
+      - ./ffmpeg-bin:/opt/ffmpeg:ro

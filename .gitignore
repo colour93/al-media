@@ -47,3 +47,5 @@ data/
 *.pyc
 
 dist/
+
+docker-compose.yml

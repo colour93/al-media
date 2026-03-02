@@ -25,6 +25,10 @@ export {
   bindingStrategiesTable,
   bindingStrategyRelations,
 } from "../entities/BindingStrategy";
+export {
+  videoFileIndexStrategiesTable,
+  videoFileIndexStrategyRelations,
+} from "../entities/VideoFileIndexStrategy";
 export { fileDirsTable } from "../entities/FileDir";
 export {
   videoFileUniquesTable,

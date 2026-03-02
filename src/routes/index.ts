@@ -54,7 +54,7 @@ export const appRoutes = new Elysia({ prefix: "/api" })
     if (code === "VALIDATION") {
       set.status = 422;
 
-      const details = process.env.NODE_ENV !== "production" ?
+      const details = process.env["NODE_ENV"] !== "production" ?
         ((error as any).all?.map((item: any) => ({
           field: item.path?.replace(/^\//, "") || "未知",
           message: item.message,

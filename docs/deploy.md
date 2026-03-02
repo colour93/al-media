@@ -33,6 +33,7 @@
 
 ## Docker 打包
 镜像已在运行层安装 `ffmpeg` 与 `ffprobe`，满足服务端缩略图/时长解析能力。
+镜像启动命令会先执行数据库迁移（读取 `drizzle/`），再启动服务。
 
 ### 构建镜像
 - `bun run docker:build`
@@ -50,10 +51,26 @@
 - 精简镜像：`docker run --rm -p 39994:39994 --env-file .env -e FFMPEG_BIN=/path/to/ffmpeg -e FFPROBE_BIN=/path/to/ffprobe colour93/al-media:slim`
 
 如需持久化数据目录，请额外挂载卷并设置 `DATA_PATH`。
+如需自定义迁移目录，可设置：
+- `MIGRATIONS_DIR`（默认 `drizzle`）
+如果视频目录来自 NAS/NFS/CIFS 挂载，建议启用轮询监听，避免 `watch EINVAL`：
+- `FILE_WATCH_USE_POLLING=1`
+- `FILE_WATCH_INTERVAL=1000`（可选，单位毫秒）
+
+### Docker Compose 模板
+- 仓库提供模板：`docker-compose.template.yml`
+- 使用方式：
+  - 复制为 `docker-compose.yml`
+  - 默认镜像启动：`docker compose up -d app`
+  - 精简镜像启动：`docker compose --profile slim up -d app-slim`
 
 ## 二进制打包（Bun compile）
 - 生成二进制：`bun run build:binary`
 - 生成发布目录（含前端资源）：`bun run package:binary`
+
+## 数据库迁移
+- 生成迁移：`bun run db:generate`
+- 执行迁移：`bun run db:migrate`
 
 注意：二进制发布时，目标机器也需要安装 `ffmpeg` 与 `ffprobe`（本项目通过系统 PATH 调用）。
 如非 PATH 默认位置，可设置：

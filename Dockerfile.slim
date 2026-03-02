@@ -26,8 +26,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/web/app/dist ./web/app/dist
 COPY --from=build /app/web/admin/dist ./web/admin/dist
 
 EXPOSE 39994
-CMD ["bun", "run", "dist/index.js"]
+CMD ["sh", "-c", "bun run dist/scripts/migrate.js && bun run dist/index.js"]

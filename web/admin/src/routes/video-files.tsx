@@ -5,10 +5,14 @@ import {
   Typography,
   Button,
   TextField,
+  MenuItem,
   InputAdornment,
   ToggleButton,
   ToggleButtonGroup,
   Checkbox,
+  Switch,
+  Paper,
+  LinearProgress,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -17,15 +21,45 @@ import {
   Chip,
   Avatar,
 } from '@mui/material';
-import { Play, Plus, List, FolderTree, Search, ChevronRight, ChevronDown, Tags } from 'lucide-react';
+import {
+  Play,
+  Plus,
+  List,
+  FolderTree,
+  Search,
+  ChevronRight,
+  ChevronDown,
+  Tags,
+  Pause,
+  Square,
+  X,
+  RefreshCw,
+  ShieldBan,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { VideoPreviewDialog } from '../components/VideoPreviewDialog/VideoPreviewDialog';
-import { useVideoFilesList } from '../hooks/useVideoFiles';
+import {
+  useVideoFilesList,
+  useVideoFileScanTask,
+  useStartVideoFileScanTask,
+  usePauseVideoFileScanTask,
+  useResumeVideoFileScanTask,
+  useStopVideoFileScanTask,
+  useCancelVideoFileScanTask,
+  useVideoFileIndexStrategiesList,
+  useVideoFileIndexStrategyCreate,
+  useVideoFileIndexStrategyUpdate,
+  useVideoFileIndexStrategyDelete,
+  useApplyVideoFileIndexStrategy,
+} from '../hooks/useVideoFiles';
 import { useVideoInsertFromFile } from '../hooks/useVideos';
 import { batchAddTagsToVideos, batchAddActorsToVideos, batchAddCreatorsToVideos } from '../api/videos';
 import { useActorsList } from '../hooks/useActors';
 import { useCreatorsList } from '../hooks/useCreators';
 import { useTagsList } from '../hooks/useTags';
+import { useFileDirsList } from '../hooks/useFileDirs';
 import { getFileUrl } from '../api/file';
 import { renderLucideIcon } from '../utils/lucideIcons';
 import { formatDurationHuman } from '../utils/format';
@@ -34,8 +68,9 @@ import { validateListSearch } from '../schemas/listSearch';
 import type { VideoFile } from '../api/types';
 import type { Actor } from '../api/types';
 import type { Creator } from '../api/types';
-import type { Tag, TagType } from '../api/types';
+import type { FileDir, Tag, TagType, VideoFileIndexStrategy } from '../api/types';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
+import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -120,6 +155,21 @@ function buildFolderTree(items: VideoFile[]): TreeNode[] {
   return roots.length ? roots : rootNode ? [rootNode] : [];
 }
 
+const scanStatusLabelMap: Record<string, string> = {
+  pending: '等待中',
+  processing: '索引中',
+  paused: '已暂停',
+  completed: '已完成',
+  failed: '失败',
+  aborted: '已取消',
+  stopped: '已停止',
+};
+
+function formatScanStatus(status?: string): string {
+  if (!status) return '未开始';
+  return scanStatusLabelMap[status] ?? status;
+}
+
 export const Route = createFileRoute('/video-files')({
   validateSearch: validateListSearch,
   component: VideoFilesPage,
@@ -131,6 +181,19 @@ function VideoFilesPage() {
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useVideoFilesList(page, pageSize, keyword, sortBy, sortOrder);
+  const { data: fileDirsData } = useFileDirsList(1, 200, '');
+  const { data: scanTask } = useVideoFileScanTask();
+  const startScanMut = useStartVideoFileScanTask();
+  const pauseScanMut = usePauseVideoFileScanTask();
+  const resumeScanMut = useResumeVideoFileScanTask();
+  const stopScanMut = useStopVideoFileScanTask();
+  const cancelScanMut = useCancelVideoFileScanTask();
+  const { data: indexStrategiesData, isLoading: indexStrategiesLoading } =
+    useVideoFileIndexStrategiesList(1, 100, '', 'id', 'desc');
+  const createIndexStrategyMut = useVideoFileIndexStrategyCreate();
+  const updateIndexStrategyMut = useVideoFileIndexStrategyUpdate();
+  const deleteIndexStrategyMut = useVideoFileIndexStrategyDelete();
+  const applyIndexStrategyMut = useApplyVideoFileIndexStrategy();
   const { data: actorsData } = useActorsList(1, 50, '');
   const { data: creatorsData } = useCreatorsList(1, 50, '');
   const { data: tagsData } = useTagsList(1, 50, '');
@@ -150,6 +213,13 @@ function VideoFilesPage() {
   const [batchActorIds, setBatchActorIds] = useState<number[]>([]);
   const [batchCreatorIds, setBatchCreatorIds] = useState<number[]>([]);
   const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [scanFileDirId, setScanFileDirId] = useState<number | ''>('');
+  const [indexStrategyFormOpen, setIndexStrategyFormOpen] = useState(false);
+  const [editingIndexStrategy, setEditingIndexStrategy] = useState<VideoFileIndexStrategy | null>(null);
+  const [indexStrategyDeleteTarget, setIndexStrategyDeleteTarget] = useState<VideoFileIndexStrategy | null>(null);
+  const [indexStrategyFileDirId, setIndexStrategyFileDirId] = useState<number | 'all'>('all');
+  const [indexStrategyRegex, setIndexStrategyRegex] = useState('');
+  const [indexStrategyEnabled, setIndexStrategyEnabled] = useState(true);
 
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -167,9 +237,16 @@ function VideoFilesPage() {
 
   const items = useMemo(() => (data?.items ?? []) as VideoFile[], [data?.items]);
   const total = data?.total ?? 0;
+  const fileDirs = (fileDirsData?.items ?? []) as FileDir[];
   const actors = actorsData?.items ?? [];
   const creators = creatorsData?.items ?? [];
   const tags = (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[];
+  const indexStrategies = (indexStrategiesData?.items ?? []) as VideoFileIndexStrategy[];
+
+  useEffect(() => {
+    if (scanFileDirId !== '' || fileDirs.length === 0) return;
+    setScanFileDirId(fileDirs[0]?.id ?? '');
+  }, [fileDirs, scanFileDirId]);
 
   const itemMap = useMemo(() => new Map(items.map((f) => [f.id, f])), [items]);
 
@@ -279,6 +356,82 @@ function VideoFilesPage() {
     } finally {
       setBatchSubmitting(false);
     }
+  };
+
+  const isTaskProcessing = scanTask?.status === 'processing';
+  const isTaskPaused = scanTask?.status === 'paused';
+  const isTaskPending = scanTask?.status === 'pending';
+  const isTaskActive = isTaskProcessing || isTaskPaused || isTaskPending;
+  const scanProgressPercent =
+    scanTask && scanTask.totalFileCount > 0
+      ? Math.min(100, Math.floor((scanTask.currentFileCount / scanTask.totalFileCount) * 100))
+      : 0;
+  const scanProgressText = scanTask
+    ? `${scanTask.currentFileCount} / ${scanTask.totalFileCount || '-'}`
+    : '0 / 0';
+  const scanTaskMutating =
+    startScanMut.isPending ||
+    pauseScanMut.isPending ||
+    resumeScanMut.isPending ||
+    stopScanMut.isPending ||
+    cancelScanMut.isPending;
+
+  const handleStartScanTask = async (force: boolean) => {
+    if (scanFileDirId === '') return;
+    await startScanMut.mutateAsync({ fileDirId: Number(scanFileDirId), force });
+  };
+
+  const handleOpenCreateIndexStrategy = () => {
+    setEditingIndexStrategy(null);
+    setIndexStrategyFileDirId('all');
+    setIndexStrategyRegex('');
+    setIndexStrategyEnabled(true);
+    setIndexStrategyFormOpen(true);
+  };
+
+  const handleOpenEditIndexStrategy = (strategy: VideoFileIndexStrategy) => {
+    setEditingIndexStrategy(strategy);
+    setIndexStrategyFileDirId(strategy.fileDirId ?? 'all');
+    setIndexStrategyRegex(strategy.fileKeyRegex);
+    setIndexStrategyEnabled(strategy.enabled);
+    setIndexStrategyFormOpen(true);
+  };
+
+  const handleCloseIndexStrategyForm = () => {
+    setIndexStrategyFormOpen(false);
+    setEditingIndexStrategy(null);
+  };
+
+  const handleSubmitIndexStrategy = async () => {
+    const payload = {
+      mode: 'blacklist' as const,
+      fileDirId: indexStrategyFileDirId === 'all' ? null : Number(indexStrategyFileDirId),
+      fileKeyRegex: indexStrategyRegex.trim(),
+      enabled: indexStrategyEnabled,
+    };
+    if (editingIndexStrategy) {
+      await updateIndexStrategyMut.mutateAsync({ id: editingIndexStrategy.id, data: payload });
+    } else {
+      await createIndexStrategyMut.mutateAsync(payload);
+    }
+    handleCloseIndexStrategyForm();
+  };
+
+  const handleToggleIndexStrategyEnabled = async (row: VideoFileIndexStrategy) => {
+    await updateIndexStrategyMut.mutateAsync({
+      id: row.id,
+      data: { enabled: !row.enabled },
+    });
+  };
+
+  const handleApplyIndexStrategy = async (row: VideoFileIndexStrategy) => {
+    await applyIndexStrategyMut.mutateAsync(row.id);
+  };
+
+  const handleDeleteIndexStrategyConfirm = async () => {
+    if (!indexStrategyDeleteTarget) return;
+    await deleteIndexStrategyMut.mutateAsync(indexStrategyDeleteTarget.id);
+    setIndexStrategyDeleteTarget(null);
   };
 
   const folderTree = useMemo(() => (viewMode === 'folder' ? buildFolderTree(items) : []), [viewMode, items]);
@@ -547,6 +700,182 @@ function VideoFilesPage() {
         视频文件由目录扫描自动生成。可多选文件或整文件夹，批量设置标签、演员、创作者（无视频实体时会先新建）。
       </Typography>
 
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
+          <Box>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <RefreshCw size={18} />
+              索引任务
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              状态：{formatScanStatus(scanTask?.status)}
+              {scanTask?.force ? '（强制重索引）' : ''}
+              {scanTask?.dir?.path ? ` · 目录：${scanTask.dir.path}` : ''}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <TextField
+              select
+              label="目录"
+              size="small"
+              value={scanFileDirId}
+              onChange={(e) =>
+                setScanFileDirId(e.target.value === '' ? '' : Number(e.target.value))
+              }
+              sx={{ minWidth: 220 }}
+            >
+              <MenuItem value="">请选择目录</MenuItem>
+              {fileDirs.map((dir) => (
+                <MenuItem key={dir.id} value={dir.id}>
+                  {dir.path}
+                </MenuItem>
+              ))}
+            </TextField>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => handleStartScanTask(false)}
+              disabled={scanFileDirId === '' || isTaskActive || scanTaskMutating}
+            >
+              开始索引
+            </Button>
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => handleStartScanTask(true)}
+              disabled={scanFileDirId === '' || isTaskActive || scanTaskMutating}
+            >
+              强制重索引
+            </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={isTaskPaused ? <Play size={14} /> : <Pause size={14} />}
+              onClick={() => (isTaskPaused ? resumeScanMut.mutate() : pauseScanMut.mutate())}
+              disabled={!isTaskProcessing && !isTaskPaused}
+            >
+              {isTaskPaused ? '继续' : '暂停'}
+            </Button>
+            <Button
+              variant="outlined"
+              color="warning"
+              size="small"
+              startIcon={<Square size={14} />}
+              onClick={() => stopScanMut.mutate()}
+              disabled={!isTaskActive}
+            >
+              停止
+            </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              size="small"
+              startIcon={<X size={14} />}
+              onClick={() => cancelScanMut.mutate()}
+              disabled={!isTaskActive}
+            >
+              取消
+            </Button>
+          </Box>
+        </Box>
+        <LinearProgress
+          variant={scanTask && isTaskActive && !scanTask.totalFileCount ? 'indeterminate' : 'determinate'}
+          value={scanProgressPercent}
+          sx={{ mb: 1 }}
+        />
+        <Typography variant="caption" color="text.secondary">
+          进度：{scanProgressText}
+          {scanTask?.currentFile ? ` · 当前：${scanTask.currentFile}` : ''}
+          {scanTask?.error ? ` · 错误：${scanTask.error}` : ''}
+        </Typography>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+          <Box>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ShieldBan size={18} />
+              索引策略
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              默认黑名单模式。文件 Key 命中正则时将跳过索引，可应用到已索引文件并移除记录。
+            </Typography>
+          </Box>
+          <Button variant="contained" size="small" onClick={handleOpenCreateIndexStrategy}>
+            新建策略
+          </Button>
+        </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {indexStrategiesLoading ? (
+            <Typography variant="body2" color="text.secondary">
+              加载中...
+            </Typography>
+          ) : indexStrategies.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              暂无索引策略
+            </Typography>
+          ) : (
+            indexStrategies.map((row) => (
+              <Box
+                key={row.id}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 2,
+                  border: 1,
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  px: 1.5,
+                  py: 1,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
+                    <strong>#{row.id}</strong> · {row.fileKeyRegex}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    模式：黑名单 · 目录：{row.fileDir?.path ?? '全部目录'}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                  <Switch
+                    size="small"
+                    checked={row.enabled}
+                    onChange={() => handleToggleIndexStrategyEnabled(row)}
+                    disabled={updateIndexStrategyMut.isPending}
+                  />
+                  <Button
+                    size="small"
+                    startIcon={<RefreshCw size={14} />}
+                    onClick={() => handleApplyIndexStrategy(row)}
+                    disabled={applyIndexStrategyMut.isPending}
+                  >
+                    应用
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<Pencil size={14} />}
+                    onClick={() => handleOpenEditIndexStrategy(row)}
+                  >
+                    编辑
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    startIcon={<Trash2 size={14} />}
+                    onClick={() => setIndexStrategyDeleteTarget(row)}
+                  >
+                    删除
+                  </Button>
+                </Box>
+              </Box>
+            ))
+          )}
+        </Box>
+      </Paper>
+
       {viewMode === 'folder' ? (
         <Box>
           <Box sx={{ p: 2, pb: 0 }}>
@@ -712,6 +1041,78 @@ function VideoFilesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog
+        open={indexStrategyFormOpen}
+        onClose={handleCloseIndexStrategyForm}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>{editingIndexStrategy ? '编辑索引策略' : '新建索引策略'}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <TextField
+            select
+            label="目录范围"
+            value={indexStrategyFileDirId}
+            onChange={(e) =>
+              setIndexStrategyFileDirId(e.target.value === 'all' ? 'all' : Number(e.target.value))
+            }
+            fullWidth
+          >
+            <MenuItem value="all">全部目录</MenuItem>
+            {fileDirs.map((dir) => (
+              <MenuItem key={dir.id} value={dir.id}>
+                {dir.path}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="文件 Key 正则"
+            value={indexStrategyRegex}
+            onChange={(e) => setIndexStrategyRegex(e.target.value)}
+            placeholder="例如 ^tmp/|\\.part$"
+            required
+            fullWidth
+            autoFocus
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Switch
+              checked={indexStrategyEnabled}
+              onChange={(e) => setIndexStrategyEnabled(e.target.checked)}
+            />
+            <Typography>启用</Typography>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            模式固定为黑名单：匹配成功即跳过索引。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseIndexStrategyForm}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitIndexStrategy}
+            disabled={
+              !indexStrategyRegex.trim() ||
+              createIndexStrategyMut.isPending ||
+              updateIndexStrategyMut.isPending
+            }
+          >
+            {createIndexStrategyMut.isPending || updateIndexStrategyMut.isPending ? '处理中…' : '确定'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <DeleteConfirm
+        open={!!indexStrategyDeleteTarget}
+        message={
+          indexStrategyDeleteTarget
+            ? `确定要删除索引策略「${indexStrategyDeleteTarget.fileKeyRegex}」吗？`
+            : ''
+        }
+        onClose={() => setIndexStrategyDeleteTarget(null)}
+        onConfirm={handleDeleteIndexStrategyConfirm}
+        loading={deleteIndexStrategyMut.isPending}
+      />
 
       <VideoPreviewDialog
         open={!!previewVideoFileId}
