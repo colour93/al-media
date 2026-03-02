@@ -153,7 +153,7 @@ export type InferVideoInfoResult = {
 type VideoInferTaskSource = "admin-infer-preview" | "video-re-extract" | "video-auto-extract";
 
 export type VideoInferTaskSnapshot = {
-  status: "idle" | "processing";
+  status: "idle" | "processing" | "paused";
   waitingCount: number;
   current: {
     source: VideoInferTaskSource;
@@ -208,6 +208,12 @@ class VideosService {
 
   private inferRunning: { source: VideoInferTaskSource; target: string; startedAt: Date } | null = null;
 
+  private inferPaused = false;
+
+  private inferResumePromise: Promise<void> | null = null;
+
+  private inferResumeResolver: (() => void) | null = null;
+
   private inferLastFinishedAt: Date | null = null;
 
   private inferLastError: string | null = null;
@@ -218,7 +224,7 @@ class VideosService {
 
   getInferTaskSnapshot(): VideoInferTaskSnapshot {
     return {
-      status: this.inferRunning ? "processing" : "idle",
+      status: this.inferRunning ? "processing" : this.inferPaused ? "paused" : "idle",
       waitingCount: this.inferWaitingCount,
       current: this.inferRunning
         ? {
@@ -232,6 +238,30 @@ class VideosService {
     };
   }
 
+  pauseInferTask() {
+    this.inferPaused = true;
+  }
+
+  resumeInferTask() {
+    if (!this.inferPaused) return;
+    this.inferPaused = false;
+    const resolver = this.inferResumeResolver;
+    this.inferResumeResolver = null;
+    this.inferResumePromise = null;
+    resolver?.();
+  }
+
+  private async waitForInferResume() {
+    while (this.inferPaused) {
+      if (!this.inferResumePromise) {
+        this.inferResumePromise = new Promise<void>((resolve) => {
+          this.inferResumeResolver = resolve;
+        });
+      }
+      await this.inferResumePromise;
+    }
+  }
+
   private enqueueInferTask<T>(
     source: VideoInferTaskSource,
     target: string,
@@ -239,6 +269,7 @@ class VideosService {
   ): Promise<T> {
     this.inferWaitingCount += 1;
     const execute = async () => {
+      await this.waitForInferResume();
       this.inferWaitingCount = Math.max(0, this.inferWaitingCount - 1);
       this.inferRunning = { source, target, startedAt: new Date() };
       try {
@@ -628,7 +659,7 @@ class VideosService {
     return { added };
   }
 
-  /** 从关联视频文件截取缩略图，seekSec 默认 1 秒，返回新 thumbnailKey */
+  /** 从关联视频文件截取缩略图，默认取视频时长 30% 位置，返回新 thumbnailKey */
   async captureThumbnail(
     videoId: number,
     seekSec?: number
@@ -640,12 +671,15 @@ class VideosService {
     if (!content) return { error: "视频没有关联的文件" };
     const videoFile = await db.query.videoFilesTable.findFirst({
       where: eq(videoFilesTable.uniqueId, content.uniqueId),
-      columns: { id: true },
+      columns: { id: true, videoDuration: true },
     });
     if (!videoFile) return { error: "视频文件记录不存在" };
     const path = await videoFileManager.getVideoFilePath(videoFile.id);
     if (!path) return { error: "无法获取视频文件路径" };
-    const thumbBuf = await ffmpegManager.generateThumbnail(path, seekSec);
+    const durationSecRaw = Number(videoFile.videoDuration);
+    const durationSec =
+      Number.isFinite(durationSecRaw) && durationSecRaw > 0 ? durationSecRaw : undefined;
+    const thumbBuf = await ffmpegManager.generateThumbnail(path, { seekSec, durationSec });
     if (!thumbBuf) return { error: "缩略图截取失败" };
     const thumbnailKey = `${content.uniqueId}.jpg`;
     await fileManager.write(thumbnailKey, FileCategory.Thumbnails, thumbBuf);

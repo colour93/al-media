@@ -119,6 +119,14 @@ export async function fetchVideoInferTask(): Promise<VideoInferTask> {
   return get<VideoInferTask>(`${BASE}/infer-task/status`);
 }
 
+export async function pauseVideoInferTask(): Promise<VideoInferTask> {
+  return post<VideoInferTask>(`${BASE}/infer-task/pause`, {});
+}
+
+export async function resumeVideoInferTask(): Promise<VideoInferTask> {
+  return post<VideoInferTask>(`${BASE}/infer-task/resume`, {});
+}
+
 export async function captureThumbnail(
   id: number,
   seekSec?: number

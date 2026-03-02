@@ -120,7 +120,7 @@ export interface VideoFileScanTask {
 export type VideoInferTaskSource = 'admin-infer-preview' | 'video-re-extract' | 'video-auto-extract';
 
 export interface VideoInferTask {
-  status: 'idle' | 'processing';
+  status: 'idle' | 'processing' | 'paused';
   waitingCount: number;
   current: {
     source: VideoInferTaskSource;

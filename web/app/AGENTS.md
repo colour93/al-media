@@ -82,6 +82,7 @@
 
 ## 联调约定
 - 默认 `VITE_API_BASE=/api`（见 `src/config/api.ts`）。
+- 站点名、favicon、PWA 图标/主题色由后端 `/api/auth/config` 动态下发（对应后端环境变量 `SITE_*`、`PWA_*`）。
 - 开发代理在 `rsbuild.config.ts`：
   - `/api -> http://localhost:39994`
   - `/admin -> http://localhost:39995`

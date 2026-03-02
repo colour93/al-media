@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { type MouseEvent, type ReactNode, useState } from 'react';
 import { Box, Paper, Typography, Button, CircularProgress, Pagination, ToggleButton, ToggleButtonGroup } from '@mui/material';
-import { User, LogOut, ExternalLink } from 'lucide-react';
+import { User, LogOut, ExternalLink, Download } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { fetchAuthMe, logout } from '../api/auth';
@@ -10,6 +10,7 @@ import { VideoCard } from '../components/VideoCard/VideoCard';
 import { useFavoriteVideos, useWatchHistory } from '../hooks/useVideos';
 import { formatDurationFromSeconds } from '../utils/format';
 import { type ThemePreference, useThemeMode } from '../contexts/ThemeModeContext';
+import { usePwaInstall } from '../contexts/PwaInstallContext';
 
 export const Route = createFileRoute('/me')({
   beforeLoad: async () => {
@@ -99,7 +100,10 @@ function MePage() {
   const pageSize = 12;
   const [favoritesPage, setFavoritesPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
+  const [installingPwa, setInstallingPwa] = useState(false);
+  const [pwaMessage, setPwaMessage] = useState('');
   const { preference, setPreference } = useThemeMode();
+  const { isStandalone, canPromptInstall, canInstall, requestInstall } = usePwaInstall();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: user } = useQuery({
@@ -141,6 +145,24 @@ function MePage() {
   const handleThemeChange = (_: MouseEvent<HTMLElement>, next: ThemePreference | null) => {
     if (!next) return;
     setPreference(next);
+  };
+  const handleInstallPwa = async () => {
+    setPwaMessage('');
+    setInstallingPwa(true);
+    try {
+      const result = await requestInstall();
+      if (result === 'accepted') {
+        setPwaMessage('安装提示已打开，请按系统弹窗完成安装。');
+        return;
+      }
+      if (result === 'dismissed') {
+        setPwaMessage('已取消安装。');
+        return;
+      }
+      setPwaMessage('当前浏览器未提供安装弹窗，请使用浏览器菜单中的“添加到主屏幕”。');
+    } finally {
+      setInstallingPwa(false);
+    }
   };
 
   return (
@@ -201,6 +223,48 @@ function MePage() {
             <ToggleButton value="dark">深色</ToggleButton>
           </ToggleButtonGroup>
         </Box>
+        {!isStandalone && canInstall ? (
+          <Box
+            sx={{
+              mt: 2,
+              pt: 2,
+              borderTop: 1,
+              borderColor: 'divider',
+              display: 'flex',
+              alignItems: { xs: 'flex-start', sm: 'center' },
+              justifyContent: 'space-between',
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                添加到设备
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                可安装为应用，从桌面直接打开。
+              </Typography>
+              {pwaMessage ? (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  {pwaMessage}
+                </Typography>
+              ) : null}
+            </Box>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<Download size={16} />}
+              onClick={handleInstallPwa}
+              disabled={installingPwa}
+            >
+              {installingPwa
+                ? '处理中…'
+                : canPromptInstall
+                  ? '添加到设备'
+                  : '查看添加指引'}
+            </Button>
+          </Box>
+        ) : null}
       </Paper>
 
       <Box

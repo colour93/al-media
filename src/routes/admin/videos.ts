@@ -317,6 +317,14 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
     { params: t.Object({ id: t.String() }) }
   )
   .get("/infer-task/status", () => videosService.getInferTaskSnapshot())
+  .post("/infer-task/pause", () => {
+    videosService.pauseInferTask();
+    return videosService.getInferTaskSnapshot();
+  })
+  .post("/infer-task/resume", () => {
+    videosService.resumeInferTask();
+    return videosService.getInferTaskSnapshot();
+  })
   .post(
     "/infer-video-info",
     async ({ body, set }) => {

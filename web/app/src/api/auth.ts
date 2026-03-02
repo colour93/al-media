@@ -1,7 +1,10 @@
 import { API_BASE } from '../config/api';
+import type { SiteConfig } from '../config/site';
+import { DEFAULT_SITE_CONFIG, normalizeSiteConfig } from '../config/site';
 
 export interface AuthConfig {
   requireLogin: boolean;
+  site: SiteConfig;
 }
 
 export interface AuthUser {
@@ -14,7 +17,13 @@ export interface AuthUser {
 export async function fetchAuthConfig(): Promise<AuthConfig> {
   const res = await fetch(`${API_BASE}/auth/config`, { credentials: 'include' });
   const json = await res.json();
-  return json.success && json.data ? json.data : { requireLogin: false };
+  if (json.success && json.data) {
+    return {
+      requireLogin: !!json.data.requireLogin,
+      site: normalizeSiteConfig(json.data.site),
+    };
+  }
+  return { requireLogin: false, site: DEFAULT_SITE_CONFIG };
 }
 
 export async function fetchAuthMe(): Promise<AuthUser | null> {

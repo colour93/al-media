@@ -13,6 +13,7 @@ import {
 } from "../services/auth";
 import { usersService } from "../services/users";
 import { createLogger } from "../utils/logger";
+import { getPublicSiteConfig, getPublicSiteManifest } from "../services/siteConfig";
 
 const logger = createLogger("auth");
 
@@ -37,8 +38,17 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
     success: true,
     data: {
       requireLogin: process.env.REQUIRE_LOGIN === "true" || process.env.REQUIRE_LOGIN === "1",
+      site: getPublicSiteConfig(),
     },
   }))
+  .get("/manifest.webmanifest", () => {
+    return new Response(JSON.stringify(getPublicSiteManifest()), {
+      headers: {
+        "Content-Type": "application/manifest+json; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+    });
+  })
   .derive(async ({ request }) => {
     const token = getCookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
     const payload = token ? await verifySessionToken(token) : null;

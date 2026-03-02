@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Box,
   Container,
@@ -14,11 +15,13 @@ import {
   useTheme,
   useMediaQuery,
 } from '@mui/material';
-import { Home, Film, User, ArrowLeft } from 'lucide-react';
+import { Home, Film, User, ArrowLeft, Download } from 'lucide-react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { fetchAuthMe } from '../../api/auth';
+import { fetchAuthConfig, fetchAuthMe } from '../../api/auth';
 import { ThemeModeButton } from '../ThemeModeButton/ThemeModeButton';
+import { usePwaInstall } from '../../contexts/PwaInstallContext';
+import { DEFAULT_SITE_CONFIG } from '../../config/site';
 
 const isSecondLevelPage = (pathname: string) => pathname.split('/').filter(Boolean).length >= 2;
 
@@ -30,11 +33,18 @@ export function AppLayout() {
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const onSecondLevelPage = isSecondLevelPage(pathname);
   const showMobileBottomNav = !isDesktop && !onSecondLevelPage;
+  const { shouldAutoPrompt, dismissAutoPrompt, requestInstall } = usePwaInstall();
+  const [installingPwa, setInstallingPwa] = useState(false);
 
   const { data: user } = useQuery({
     queryKey: ['authMe'],
     queryFn: fetchAuthMe,
     staleTime: 5 * 60 * 1000,
+  });
+  const { data: authConfig } = useQuery({
+    queryKey: ['authConfig'],
+    queryFn: fetchAuthConfig,
+    staleTime: 10 * 60 * 1000,
   });
 
   const navValue =
@@ -47,6 +57,7 @@ export function AppLayout() {
           : pathname;
 
   const userInitial = (user?.name || user?.email || '?')[0].toUpperCase();
+  const siteName = authConfig?.site.name || DEFAULT_SITE_CONFIG.name;
 
   const handleBack = () => {
     if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -54,6 +65,18 @@ export function AppLayout() {
       return;
     }
     navigate({ to: '/' });
+  };
+
+  const handleInstallPwa = async () => {
+    setInstallingPwa(true);
+    try {
+      const result = await requestInstall();
+      if (result !== 'accepted') {
+        dismissAutoPrompt();
+      }
+    } finally {
+      setInstallingPwa(false);
+    }
   };
 
   return (
@@ -93,7 +116,7 @@ export function AppLayout() {
                 fontWeight={700}
                 sx={{ mr: 2, color: 'primary.main', letterSpacing: -0.5, userSelect: 'none' }}
               >
-                AL Media
+                {siteName}
               </Typography>
               <Button
                 component={Link}
@@ -176,6 +199,44 @@ export function AppLayout() {
             )}
           </BottomNavigation>
         </Paper>
+      ) : null}
+      {shouldAutoPrompt ? (
+        <Container maxWidth="xl" sx={{ mt: 1.5, mb: -1 }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.5,
+              display: 'flex',
+              alignItems: { xs: 'flex-start', sm: 'center' },
+              justifyContent: 'space-between',
+              gap: 1.5,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Box>
+              <Typography variant="body2" fontWeight={600}>
+                添加到设备
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                安装后可像原生应用一样从桌面快速打开并全屏使用。
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button size="small" onClick={dismissAutoPrompt}>
+                取消
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<Download size={16} />}
+                onClick={handleInstallPwa}
+                disabled={installingPwa}
+              >
+                {installingPwa ? '处理中…' : '添加'}
+              </Button>
+            </Box>
+          </Paper>
+        </Container>
       ) : null}
       <Container component="main" maxWidth="xl" sx={{ flex: 1, py: 3, px: { xs: 2, md: 3 } }}>
         <Outlet />

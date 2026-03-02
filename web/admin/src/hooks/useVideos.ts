@@ -10,6 +10,8 @@ import {
   reExtractVideoInfo,
   captureThumbnail,
   fetchVideoInferTask,
+  pauseVideoInferTask,
+  resumeVideoInferTask,
 } from '../api/videos';
 import { useSnackbar } from './useSnackbar';
 
@@ -49,6 +51,32 @@ export function useVideoInferTask() {
     queryKey: KEYS.inferTask(),
     queryFn: () => fetchVideoInferTask(),
     refetchInterval: 1500,
+  });
+}
+
+export function usePauseVideoInferTask() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+  return useMutation({
+    mutationFn: () => pauseVideoInferTask(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.inferTask() });
+      showMessage('推理任务已暂停');
+    },
+    onError: (err: Error) => showError(err?.message ?? '暂停推理任务失败'),
+  });
+}
+
+export function useResumeVideoInferTask() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+  return useMutation({
+    mutationFn: () => resumeVideoInferTask(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.inferTask() });
+      showMessage('推理任务已继续');
+    },
+    onError: (err: Error) => showError(err?.message ?? '继续推理任务失败'),
   });
 }
 

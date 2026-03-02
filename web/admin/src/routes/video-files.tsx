@@ -53,7 +53,12 @@ import {
   useVideoFileIndexStrategyDelete,
   useApplyVideoFileIndexStrategy,
 } from '../hooks/useVideoFiles';
-import { useVideoInsertFromFile, useVideoInferTask } from '../hooks/useVideos';
+import {
+  useVideoInsertFromFile,
+  useVideoInferTask,
+  usePauseVideoInferTask,
+  useResumeVideoInferTask,
+} from '../hooks/useVideos';
 import { batchAddTagsToVideos, batchAddActorsToVideos, batchAddCreatorsToVideos } from '../api/videos';
 import { useActorsList } from '../hooks/useActors';
 import { useCreatorsList } from '../hooks/useCreators';
@@ -143,6 +148,12 @@ const inferSourceLabelMap: Record<string, string> = {
 function formatInferSource(source?: string): string {
   if (!source) return '未知来源';
   return inferSourceLabelMap[source] ?? source;
+}
+
+function formatInferTaskStatus(status?: string): string {
+  if (status === 'processing') return '进行中';
+  if (status === 'paused') return '已暂停';
+  return '空闲';
 }
 
 function FolderLazyView(props: {
@@ -552,6 +563,8 @@ function VideoFilesPage() {
   const { data: fileDirsData } = useFileDirsList(1, 100, '');
   const { data: scanTask } = useVideoFileScanTask();
   const { data: inferTask } = useVideoInferTask();
+  const pauseInferTaskMut = usePauseVideoInferTask();
+  const resumeInferTaskMut = useResumeVideoInferTask();
   const startScanMut = useStartVideoFileScanTask();
   const pauseScanMut = usePauseVideoFileScanTask();
   const resumeScanMut = useResumeVideoFileScanTask();
@@ -707,6 +720,8 @@ function VideoFilesPage() {
     cancelScanMut.isPending;
   const hasEnabledScanDir = enabledFileDirs.length > 0;
   const inferTaskProcessing = inferTask?.status === 'processing';
+  const inferTaskPaused = inferTask?.status === 'paused';
+  const inferTaskMutating = pauseInferTaskMut.isPending || resumeInferTaskMut.isPending;
 
   const handleStartScanTask = async (force: boolean) => {
     if (scanFileDirId === '') return;
@@ -1019,13 +1034,24 @@ function VideoFilesPage() {
           <Box>
             <Typography variant="h6">视频信息推理任务</Typography>
             <Typography variant="body2" color="text.secondary">
-              状态：{inferTaskProcessing ? '进行中' : '空闲'}
+              状态：{formatInferTaskStatus(inferTask?.status)}
               {inferTask?.current?.source ? ` · 类型：${formatInferSource(inferTask.current.source)}` : ''}
             </Typography>
           </Box>
-          <Typography variant="body2" color="text.secondary">
-            排队：{inferTask?.waitingCount ?? 0}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Typography variant="body2" color="text.secondary">
+              排队：{inferTask?.waitingCount ?? 0}
+            </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={inferTaskPaused ? <Play size={14} /> : <Pause size={14} />}
+              onClick={() => (inferTaskPaused ? resumeInferTaskMut.mutate() : pauseInferTaskMut.mutate())}
+              disabled={inferTaskMutating || (!inferTaskProcessing && !inferTaskPaused)}
+            >
+              {inferTaskPaused ? '继续' : '暂停'}
+            </Button>
+          </Box>
         </Box>
         <Typography variant="caption" color="text.secondary">
           {inferTask?.current
