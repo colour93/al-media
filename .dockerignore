@@ -4,9 +4,10 @@
 node_modules
 web/app/node_modules
 web/admin/node_modules
-dist
-web/app/dist
-web/admin/dist
 docs
 data
 *.log
+
+# Keep prebuilt artifacts for Dockerfile.artifact.
+dist/release
+dist/al-media

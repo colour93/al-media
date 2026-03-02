@@ -1,0 +1,22 @@
+FROM oven/bun:1
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=39994
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates libpq5 \
+  && rm -rf /var/lib/apt/lists/*
+
+# This image expects host-built artifacts:
+# - dist/*
+# - web/app/dist/*
+# - web/admin/dist/*
+# Build them first with: bun run build:all
+COPY dist ./dist
+COPY drizzle ./drizzle
+COPY web/app/dist ./web/app/dist
+COPY web/admin/dist ./web/admin/dist
+
+EXPOSE 39994
+CMD ["sh", "-c", "bun run dist/scripts/migrate.js && bun run dist/index.js"]

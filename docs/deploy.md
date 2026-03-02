@@ -39,6 +39,19 @@
 - `bun run docker:build`
 - 或 `docker build -t colour93/al-media:latest .`
 
+### 预构建产物打包（更快）
+适合本机已完成构建、希望跳过 Docker 内 `bun install + bun run build:all` 的场景。
+
+步骤：
+- 先在宿主机构建：`bun run build:all`
+- 再构建镜像：`bun run docker:build:artifact`
+- 或：`docker build -f Dockerfile.artifact -t colour93/al-media:artifact .`
+
+说明：
+- `Dockerfile.artifact` 只拷贝运行所需产物：`dist`、`web/app/dist`、`web/admin/dist`、`drizzle`
+- 运行方式与默认镜像一致，仅镜像标签不同（`colour93/al-media:artifact`）
+- 为保证产物一致性，建议宿主机 Bun 主版本与镜像内 `oven/bun:1` 保持一致
+
 ### 精简镜像（不内置 ffmpeg/ffprobe）
 - 构建：`bun run docker:build:slim`
 - 或 `docker build -f Dockerfile.slim -t colour93/al-media:slim .`

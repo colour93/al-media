@@ -15,6 +15,7 @@
     "package:binary": "bun run build:web && bun run build:binary && mkdir -p dist/release/web/app dist/release/web/admin && cp -R web/app/dist/. dist/release/web/app && cp -R web/admin/dist/. dist/release/web/admin && cp dist/al-media dist/release/al-media",
     "docker:build": "docker build -t colour93/al-media:latest .",
     "docker:build:slim": "docker build -f Dockerfile.slim -t colour93/al-media:slim .",
+    "docker:build:artifact": "docker build -f Dockerfile.artifact -t colour93/al-media:artifact .",
     "start": "NODE_ENV=production bun run dist/index.js",
     "start:docker": "bun run dist/scripts/migrate.js && bun run dist/index.js"
   },
