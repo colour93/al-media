@@ -92,6 +92,7 @@
 ## 通用页面行为约定
 - 列表页 URL 查询参数走 `validateListSearch`：
   - `page`、`pageSize`、`keyword`、`sortBy`、`sortOrder`、`editId`
+  - `pageSize` 需在 `1-100`（后端 `src/utils/pagination.ts` 限制，超出返回 `400`）
 - 列表渲染统一使用 `src/components/DataTable/DataTable.tsx`
 - 表单弹窗统一使用 `src/components/FormDialog/FormDialog.tsx`
 - 删除确认统一使用 `src/components/DeleteConfirm/DeleteConfirm.tsx`
