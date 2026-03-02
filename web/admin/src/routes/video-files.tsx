@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import {
   Box,
@@ -6,7 +6,6 @@ import {
   Button,
   TextField,
   MenuItem,
-  InputAdornment,
   ToggleButton,
   ToggleButtonGroup,
   Checkbox,
@@ -20,13 +19,13 @@ import {
   Autocomplete,
   Chip,
   Avatar,
+  CircularProgress,
 } from '@mui/material';
 import {
   Play,
   Plus,
   List,
   FolderTree,
-  Search,
   ChevronRight,
   ChevronDown,
   Tags,
@@ -71,6 +70,11 @@ import type { Creator } from '../api/types';
 import type { FileDir, Tag, TagType, VideoFileIndexStrategy } from '../api/types';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
 import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
+import {
+  fetchVideoFile,
+  fetchVideoFileFolderChildren,
+  fetchVideoFilesByFolder,
+} from '../api/videoFiles';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -78,81 +82,41 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-interface TreeNode {
-  id: string;
-  name: string;
+type FolderNode = {
+  fileDirId: number;
   path: string;
-  children: TreeNode[];
-  files: VideoFile[];
+  name: string;
+  isRoot?: boolean;
+};
+
+type CursorChunk<T> = {
+  items: T[];
+  nextCursor: string | null;
+  loading: boolean;
+  loaded: boolean;
+};
+
+type FolderViewRow =
+  | { type: 'folder'; key: string; depth: number; node: FolderNode }
+  | { type: 'file'; key: string; depth: number; file: VideoFile }
+  | { type: 'load-more-folders'; key: string; depth: number; node: FolderNode }
+  | { type: 'load-more-files'; key: string; depth: number; node: FolderNode };
+
+const FOLDER_VIEW_PAGE_SIZE = 50;
+const FOLDER_ROW_HEIGHT = 52;
+const FOLDER_OVERSCAN = 8;
+
+function buildFolderKey(fileDirId: number, folderPath: string): string {
+  return `${fileDirId}:${folderPath}`;
 }
 
-function buildFolderTree(items: VideoFile[]): TreeNode[] {
-  const nodeMap = new Map<string, TreeNode>();
-
-  const getOrCreate = (path: string, name: string): TreeNode => {
-    const id = path || '__root__';
-    let node = nodeMap.get(id);
-    if (!node) {
-      node = { id, name: name || '根目录', path, children: [], files: [] };
-      nodeMap.set(id, node);
-    }
-    return node;
+function createEmptyCursorChunk<T>(): CursorChunk<T> {
+  return {
+    items: [],
+    nextCursor: null,
+    loading: false,
+    loaded: false,
   };
-
-  const rootPaths = new Set<string>();
-
-  for (const f of items) {
-    const base = ((f as VideoFile & { fileDir?: { path?: string } }).fileDir?.path ?? '').replace(/\/+$/, '');
-    const folder = f.fileKey.includes('/') ? f.fileKey.split('/').slice(0, -1).join('/') : '';
-
-    if (folder) {
-      const parts = folder.split('/').filter(Boolean);
-      let parentPath = base;
-
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        const fullPath = parentPath ? `${parentPath}/${part}` : part;
-        const node = getOrCreate(fullPath, part);
-
-        if (i === 0 && base) {
-          rootPaths.add(base);
-        }
-        if (parentPath) {
-          const parent = getOrCreate(parentPath, parentPath.split('/').pop() ?? '');
-          if (!parent.children.some((c) => c.id === node.id)) {
-            parent.children.push(node);
-          }
-        }
-        parentPath = fullPath;
-      }
-      const leaf = getOrCreate(parentPath, parts[parts.length - 1] ?? '');
-      leaf.files.push(f);
-    } else {
-      const node = getOrCreate(base || '__root__', base ? base.split('/').pop() ?? '根目录' : '根目录');
-      node.files.push(f);
-      if (base) rootPaths.add(base);
-    }
-  }
-
-  const roots: TreeNode[] = [];
-  const rootNode = nodeMap.get('__root__');
-  if (rootNode) {
-    roots.push(rootNode);
-  }
-  for (const p of Array.from(rootPaths).sort()) {
-    const node = nodeMap.get(p);
-    if (node && !roots.some((r) => r.id === node.id)) {
-      roots.push(node);
-    }
-  }
-
-  function sortChildren(n: TreeNode) {
-    n.children.sort((a, b) => a.name.localeCompare(b.name));
-    n.children.forEach(sortChildren);
-  }
-  roots.forEach(sortChildren);
-
-  return roots.length ? roots : rootNode ? [rootNode] : [];
 }
 
 const scanStatusLabelMap: Record<string, string> = {
@@ -179,6 +143,399 @@ const inferSourceLabelMap: Record<string, string> = {
 function formatInferSource(source?: string): string {
   if (!source) return '未知来源';
   return inferSourceLabelMap[source] ?? source;
+}
+
+function FolderLazyView(props: {
+  enabledFileDirs: FileDir[];
+  selectedFileIds: Set<number>;
+  onToggleFileSelect: (id: number) => void;
+  onCreateVideo: (row: VideoFile) => void;
+  onPreviewVideoFile: (videoFileId: number) => void;
+  createVideoLoading: boolean;
+}) {
+  const {
+    enabledFileDirs,
+    selectedFileIds,
+    onToggleFileSelect,
+    onCreateVideo,
+    onPreviewVideoFile,
+    createVideoLoading,
+  } = props;
+
+  const rootNodes = useMemo<FolderNode[]>(
+    () =>
+      enabledFileDirs.map((dir) => ({
+        fileDirId: dir.id,
+        path: '',
+        name: dir.path,
+        isRoot: true,
+      })),
+    [enabledFileDirs]
+  );
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [folderChildrenMap, setFolderChildrenMap] = useState<Record<string, CursorChunk<FolderNode>>>({});
+  const [folderFilesMap, setFolderFilesMap] = useState<Record<string, CursorChunk<VideoFile>>>({});
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(520);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const loadMoreChildren = useCallback(async (node: FolderNode) => {
+    const key = buildFolderKey(node.fileDirId, node.path);
+    let cursor: string | undefined;
+    let shouldLoad = false;
+
+    setFolderChildrenMap((prev) => {
+      const current = prev[key] ?? createEmptyCursorChunk<FolderNode>();
+      if (current.loading) return prev;
+      if (current.loaded && !current.nextCursor) return prev;
+      shouldLoad = true;
+      cursor = current.nextCursor ?? undefined;
+      return {
+        ...prev,
+        [key]: {
+          ...current,
+          loading: true,
+        },
+      };
+    });
+
+    if (!shouldLoad) return;
+
+    try {
+      const res = await fetchVideoFileFolderChildren({
+        fileDirId: node.fileDirId,
+        folderPath: node.path || undefined,
+        cursor,
+        pageSize: FOLDER_VIEW_PAGE_SIZE,
+      });
+      setFolderChildrenMap((prev) => {
+        const current = prev[key] ?? createEmptyCursorChunk<FolderNode>();
+        const merged = [...current.items, ...res.items.map((it) => ({ ...it, isRoot: false }))];
+        const dedupMap = new Map(merged.map((it) => [it.path, it]));
+        return {
+          ...prev,
+          [key]: {
+            items: Array.from(dedupMap.values()),
+            nextCursor: res.nextCursor,
+            loaded: true,
+            loading: false,
+          },
+        };
+      });
+    } catch {
+      setFolderChildrenMap((prev) => {
+        const current = prev[key] ?? createEmptyCursorChunk<FolderNode>();
+        return {
+          ...prev,
+          [key]: {
+            ...current,
+            loaded: true,
+            loading: false,
+          },
+        };
+      });
+    }
+  }, []);
+
+  const loadMoreFiles = useCallback(async (node: FolderNode) => {
+    const key = buildFolderKey(node.fileDirId, node.path);
+    let cursor: string | undefined;
+    let shouldLoad = false;
+
+    setFolderFilesMap((prev) => {
+      const current = prev[key] ?? createEmptyCursorChunk<VideoFile>();
+      if (current.loading) return prev;
+      if (current.loaded && !current.nextCursor) return prev;
+      shouldLoad = true;
+      cursor = current.nextCursor ?? undefined;
+      return {
+        ...prev,
+        [key]: {
+          ...current,
+          loading: true,
+        },
+      };
+    });
+
+    if (!shouldLoad) return;
+
+    try {
+      const res = await fetchVideoFilesByFolder({
+        fileDirId: node.fileDirId,
+        folderPath: node.path || undefined,
+        cursor,
+        pageSize: FOLDER_VIEW_PAGE_SIZE,
+      });
+      setFolderFilesMap((prev) => {
+        const current = prev[key] ?? createEmptyCursorChunk<VideoFile>();
+        const merged = [...current.items, ...res.items];
+        const dedupMap = new Map(merged.map((it) => [it.id, it]));
+        return {
+          ...prev,
+          [key]: {
+            items: Array.from(dedupMap.values()),
+            nextCursor: res.nextCursor,
+            loaded: true,
+            loading: false,
+          },
+        };
+      });
+    } catch {
+      setFolderFilesMap((prev) => {
+        const current = prev[key] ?? createEmptyCursorChunk<VideoFile>();
+        return {
+          ...prev,
+          [key]: {
+            ...current,
+            loaded: true,
+            loading: false,
+          },
+        };
+      });
+    }
+  }, []);
+
+  const toggleExpandFolder = useCallback(
+    (node: FolderNode) => {
+      const key = buildFolderKey(node.fileDirId, node.path);
+      setExpandedFolders((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) {
+          next.delete(key);
+        } else {
+          next.add(key);
+        }
+        return next;
+      });
+      void loadMoreChildren(node);
+      void loadMoreFiles(node);
+    },
+    [loadMoreChildren, loadMoreFiles]
+  );
+
+  const rows = useMemo(() => {
+    const result: FolderViewRow[] = [];
+    const append = (node: FolderNode, depth: number) => {
+      const key = buildFolderKey(node.fileDirId, node.path);
+      result.push({ type: 'folder', key: `folder:${key}`, depth, node });
+      if (!expandedFolders.has(key)) return;
+
+      const childChunk = folderChildrenMap[key] ?? createEmptyCursorChunk<FolderNode>();
+      for (const child of childChunk.items) {
+        append(child, depth + 1);
+      }
+      if (childChunk.loading || childChunk.nextCursor) {
+        result.push({ type: 'load-more-folders', key: `load-folders:${key}`, depth: depth + 1, node });
+      }
+
+      const fileChunk = folderFilesMap[key] ?? createEmptyCursorChunk<VideoFile>();
+      for (const file of fileChunk.items) {
+        result.push({
+          type: 'file',
+          key: `file:${file.id}`,
+          depth: depth + 1,
+          file,
+        });
+      }
+      if (fileChunk.loading || fileChunk.nextCursor) {
+        result.push({ type: 'load-more-files', key: `load-files:${key}`, depth: depth + 1, node });
+      }
+    };
+
+    for (const root of rootNodes) {
+      append(root, 0);
+    }
+
+    return result;
+  }, [expandedFolders, folderChildrenMap, folderFilesMap, rootNodes]);
+
+  const totalHeight = rows.length * FOLDER_ROW_HEIGHT;
+  const startIndex = Math.max(0, Math.floor(scrollTop / FOLDER_ROW_HEIGHT) - FOLDER_OVERSCAN);
+  const endIndex = Math.min(
+    rows.length,
+    Math.ceil((scrollTop + viewportHeight) / FOLDER_ROW_HEIGHT) + FOLDER_OVERSCAN
+  );
+  const visibleRows = rows.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    const folderLoadMap = new Map<string, FolderNode>();
+    const fileLoadMap = new Map<string, FolderNode>();
+    for (const row of visibleRows) {
+      if (row.type === 'load-more-folders') {
+        folderLoadMap.set(buildFolderKey(row.node.fileDirId, row.node.path), row.node);
+      }
+      if (row.type === 'load-more-files') {
+        fileLoadMap.set(buildFolderKey(row.node.fileDirId, row.node.path), row.node);
+      }
+    }
+    if (folderLoadMap.size === 0 && fileLoadMap.size === 0) {
+      return;
+    }
+    queueMicrotask(() => {
+      for (const node of folderLoadMap.values()) {
+        void loadMoreChildren(node);
+      }
+      for (const node of fileLoadMap.values()) {
+        void loadMoreFiles(node);
+      }
+    });
+  }, [visibleRows, loadMoreChildren, loadMoreFiles]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setViewportHeight(el.clientHeight || 520);
+    update();
+    const onResize = () => update();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  return (
+    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+      <Box
+        ref={scrollRef}
+        onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+        sx={{ height: 'calc(100vh - 360px)', overflow: 'auto', position: 'relative' }}
+      >
+        <Box sx={{ height: totalHeight || FOLDER_ROW_HEIGHT, position: 'relative' }}>
+          {visibleRows.map((row, index) => {
+            const absoluteIndex = startIndex + index;
+            const top = absoluteIndex * FOLDER_ROW_HEIGHT;
+
+            if (row.type === 'folder') {
+              const key = buildFolderKey(row.node.fileDirId, row.node.path);
+              const isExpanded = expandedFolders.has(key);
+              return (
+                <Box
+                  key={row.key}
+                  sx={{
+                    position: 'absolute',
+                    top,
+                    left: 0,
+                    right: 0,
+                    height: FOLDER_ROW_HEIGHT,
+                    px: 1,
+                    pl: row.depth * 2 + 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    borderBottom: 1,
+                    borderColor: 'divider',
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                  onClick={() => toggleExpandFolder(row.node)}
+                >
+                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <FolderTree size={16} />
+                  <Typography
+                    variant="body2"
+                    title={row.node.isRoot ? row.node.name : row.node.path}
+                    sx={{
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {row.node.isRoot ? row.node.name : row.node.name}
+                  </Typography>
+                </Box>
+              );
+            }
+
+            if (row.type === 'file') {
+              const fileName = row.file.fileKey.split('/').pop() ?? row.file.fileKey;
+              return (
+                <Box
+                  key={row.key}
+                  sx={{
+                    position: 'absolute',
+                    top,
+                    left: 0,
+                    right: 0,
+                    height: FOLDER_ROW_HEIGHT,
+                    px: 1,
+                    pl: row.depth * 2 + 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    borderBottom: 1,
+                    borderColor: 'divider',
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                >
+                  <Checkbox
+                    size="small"
+                    checked={selectedFileIds.has(row.file.id)}
+                    onChange={() => onToggleFileSelect(row.file.id)}
+                  />
+                  <Typography
+                    variant="body2"
+                    title={row.file.fileKey}
+                    sx={{
+                      minWidth: 0,
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {fileName}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatDurationHuman(row.file.videoDuration)} · {formatSize(row.file.fileSize)}
+                  </Typography>
+                  <Button
+                    size="small"
+                    startIcon={<Play size={14} />}
+                    onClick={() => onPreviewVideoFile(row.file.id)}
+                  >
+                    预览
+                  </Button>
+                  {!row.file.video && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<Plus size={14} />}
+                      onClick={() => onCreateVideo(row.file)}
+                      disabled={createVideoLoading}
+                    >
+                      新建视频
+                    </Button>
+                  )}
+                </Box>
+              );
+            }
+
+            return (
+              <Box
+                key={row.key}
+                sx={{
+                  position: 'absolute',
+                  top,
+                  left: 0,
+                  right: 0,
+                  height: FOLDER_ROW_HEIGHT,
+                  px: 1,
+                  pl: row.depth * 2 + 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  color: 'text.secondary',
+                }}
+              >
+                <CircularProgress size={14} />
+                <Typography variant="caption">加载中…</Typography>
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+    </Box>
+  );
 }
 
 export const Route = createFileRoute('/video-files')({
@@ -219,7 +576,6 @@ function VideoFilesPage() {
   const [previewVideoFileId, setPreviewVideoFileId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'folder'>('table');
   const [selectedFileIds, setSelectedFileIds] = useState<Set<number>>(new Set());
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchTagIds, setBatchTagIds] = useState<number[]>([]);
   const [batchActorIds, setBatchActorIds] = useState<number[]>([]);
@@ -233,23 +589,9 @@ function VideoFilesPage() {
   const [indexStrategyRegex, setIndexStrategyRegex] = useState('');
   const [indexStrategyEnabled, setIndexStrategyEnabled] = useState(true);
 
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (viewMode !== 'folder') return;
-    const id = setTimeout(
-      () => navigate({ search: (prev) => ({ ...prev, keyword: searchDraft, page: 1 }) }),
-      300
-    );
-    searchDebounceRef.current = id;
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-  }, [viewMode, searchDraft, navigate]);
-
   const items = useMemo(() => (data?.items ?? []) as VideoFile[], [data?.items]);
   const total = data?.total ?? 0;
-  const fileDirs = (fileDirsData?.items ?? []) as FileDir[];
+  const fileDirs = useMemo(() => (fileDirsData?.items ?? []) as FileDir[], [fileDirsData?.items]);
   const enabledFileDirs = useMemo(() => fileDirs.filter((dir) => dir.enabled), [fileDirs]);
   const actors = actorsData?.items ?? [];
   const creators = creatorsData?.items ?? [];
@@ -279,48 +621,6 @@ function VideoFilesPage() {
     });
   };
 
-  const getFileIdsInNode = (node: TreeNode): number[] => {
-    const ids = node.files.map((f) => f.id);
-    for (const child of node.children) {
-      ids.push(...getFileIdsInNode(child));
-    }
-    return ids;
-  };
-
-  const toggleFolderSelect = (node: TreeNode) => {
-    const ids = getFileIdsInNode(node);
-    setSelectedFileIds((prev) => {
-      const next = new Set(prev);
-      const allSelected = ids.every((id) => next.has(id));
-      if (allSelected) {
-        ids.forEach((id) => next.delete(id));
-      } else {
-        ids.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  };
-
-  const isFolderFullySelected = (node: TreeNode): boolean => {
-    const ids = getFileIdsInNode(node);
-    return ids.length > 0 && ids.every((id) => selectedFileIds.has(id));
-  };
-
-  const isFolderPartiallySelected = (node: TreeNode): boolean => {
-    const ids = getFileIdsInNode(node);
-    const selected = ids.filter((id) => selectedFileIds.has(id)).length;
-    return selected > 0 && selected < ids.length;
-  };
-
-  const toggleExpand = (path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  };
-
   const toggleSelectAll = () => {
     if (selectedFileIds.size === items.length) {
       setSelectedFileIds(new Set());
@@ -336,9 +636,19 @@ function VideoFilesPage() {
     setBatchSubmitting(true);
     try {
       const videoIds: number[] = [];
-      const selectedItems = Array.from(selectedFileIds)
-        .map((id) => itemMap.get(id))
-        .filter((f): f is VideoFile => !!f);
+      const selectedItems = (
+        await Promise.all(
+          Array.from(selectedFileIds).map(async (id) => {
+            const cached = itemMap.get(id);
+            if (cached) return cached;
+            try {
+              return await fetchVideoFile(id);
+            } catch {
+              return null;
+            }
+          })
+        )
+      ).filter((f): f is VideoFile => !!f);
 
       for (const vf of selectedItems) {
         let videoId: number | null = null;
@@ -457,8 +767,6 @@ function VideoFilesPage() {
     setIndexStrategyDeleteTarget(null);
   };
 
-  const folderTree = useMemo(() => (viewMode === 'folder' ? buildFolderTree(items) : []), [viewMode, items]);
-
   const columns: DataTableColumn<VideoFile>[] = [
     {
       id: '_select',
@@ -573,119 +881,6 @@ function VideoFilesPage() {
       )}
     </Box>
   );
-
-  const renderFolderNode = (node: TreeNode, depth: number) => {
-    const isExpanded = expandedPaths.has(node.path) || node.children.length === 0;
-    const fileCount = getFileIdsInNode(node).length;
-
-    return (
-      <Box key={node.id}>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            py: 0.5,
-            px: 1,
-            pl: depth * 2 + 1,
-            borderRadius: 1,
-            cursor: 'pointer',
-            '&:hover': { bgcolor: 'action.hover' },
-          }}
-          onClick={() => node.children.length > 0 && toggleExpand(node.path)}
-        >
-          <Checkbox
-            size="small"
-            checked={isFolderFullySelected(node)}
-            indeterminate={isFolderPartiallySelected(node)}
-            onChange={(e) => {
-              e.stopPropagation();
-              toggleFolderSelect(node);
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-          {node.children.length > 0 ? (
-            isExpanded ? (
-              <ChevronDown size={16} style={{ marginRight: 4, flexShrink: 0 }} />
-            ) : (
-              <ChevronRight size={16} style={{ marginRight: 4, flexShrink: 0 }} />
-            )
-          ) : (
-            <Box sx={{ width: 20 }} />
-          )}
-          <FolderTree size={16} style={{ marginRight: 8, flexShrink: 0 }} />
-          <Typography variant="body2" sx={{ flex: 1 }}>
-            {node.name}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {fileCount} 个文件
-          </Typography>
-        </Box>
-        {isExpanded && (
-          <>
-            {node.children.map((child) => renderFolderNode(child, depth + 1))}
-            {node.files.map((f) => (
-              <Box
-                key={f.id}
-                component="li"
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  py: 0.75,
-                  px: 1,
-                  pl: (depth + 1) * 2 + 1,
-                  borderRadius: 1,
-                  listStyle: 'none',
-                  '&:hover': { bgcolor: 'action.hover' },
-                }}
-              >
-                <Checkbox
-                  size="small"
-                  checked={selectedFileIds.has(f.id)}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    toggleFileSelect(f.id);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <Box sx={{ width: 20 }} />
-                {f.thumbnailKey ? (
-                  <Box
-                    component="img"
-                    src={getFileUrl('thumbnails', f.thumbnailKey)}
-                    alt=""
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                    sx={{ width: 48, height: 36, borderRadius: 0.5, objectFit: 'cover', flexShrink: 0 }}
-                  />
-                ) : (
-                  <Box
-                    sx={{
-                      width: 48,
-                      height: 36,
-                      borderRadius: 0.5,
-                      bgcolor: 'action.selected',
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="body2" noWrap>
-                    {f.fileKey.split('/').pop()}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {formatDurationHuman(f.videoDuration)} · {formatSize(f.fileSize)}
-                  </Typography>
-                </Box>
-                {actionsColumn(f)}
-              </Box>
-            ))}
-          </>
-        )}
-      </Box>
-    );
-  };
 
   return (
     <Box>
@@ -930,36 +1125,17 @@ function VideoFilesPage() {
 
       {viewMode === 'folder' ? (
         <Box>
-          <Box sx={{ p: 2, pb: 0 }}>
-            <TextField
-              size="small"
-              placeholder="搜索文件…"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              onKeyDown={(e) =>
-                e.key === 'Enter' &&
-                navigate({ search: (prev) => ({ ...prev, keyword: searchDraft, page: 1 }) })
-              }
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search size={18} />
-                  </InputAdornment>
-                ),
-              }}
-              sx={{ maxWidth: 320 }}
-            />
-          </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0, p: 2 }}>
-            {folderTree.map((node) => renderFolderNode(node, 0))}
-          </Box>
-          <Box sx={{ px: 2, pb: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              {items.length > 0
-                ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} / ${total}`
-                : '0 / 0'}
-            </Typography>
-          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            文件夹视图按层级懒加载：先拉文件夹，展开后再按需拉取该目录下文件，滚动自动加载更多。
+          </Typography>
+          <FolderLazyView
+            enabledFileDirs={enabledFileDirs}
+            selectedFileIds={selectedFileIds}
+            onToggleFileSelect={toggleFileSelect}
+            onCreateVideo={handleCreateVideo}
+            onPreviewVideoFile={(videoFileId) => setPreviewVideoFileId(videoFileId)}
+            createVideoLoading={insertMut.isPending}
+          />
         </Box>
       ) : (
         <DataTable<VideoFile>

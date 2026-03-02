@@ -43,6 +43,54 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
     },
     { query: searchQuerySchema }
   )
+  .get(
+    "/folders/children",
+    async ({ query, set }) => {
+      const fileDirId = Number(query.fileDirId);
+      const pageSize = query.pageSize ? Number(query.pageSize) : 50;
+      if (!Number.isInteger(fileDirId) || fileDirId < 1) {
+        set.status = 400;
+        return { message: "fileDirId 无效" };
+      }
+      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        set.status = 400;
+        return { message: "pageSize 无效" };
+      }
+      return videoFilesService.listFolderChildren(fileDirId, query.folderPath, query.cursor, pageSize);
+    },
+    {
+      query: t.Object({
+        fileDirId: t.String(),
+        folderPath: t.Optional(t.String()),
+        cursor: t.Optional(t.String()),
+        pageSize: t.Optional(t.String()),
+      }),
+    }
+  )
+  .get(
+    "/folders/files",
+    async ({ query, set }) => {
+      const fileDirId = Number(query.fileDirId);
+      const pageSize = query.pageSize ? Number(query.pageSize) : 50;
+      if (!Number.isInteger(fileDirId) || fileDirId < 1) {
+        set.status = 400;
+        return { message: "fileDirId 无效" };
+      }
+      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+        set.status = 400;
+        return { message: "pageSize 无效" };
+      }
+      return videoFilesService.listFolderFiles(fileDirId, query.folderPath, query.cursor, pageSize);
+    },
+    {
+      query: t.Object({
+        fileDirId: t.String(),
+        folderPath: t.Optional(t.String()),
+        cursor: t.Optional(t.String()),
+        pageSize: t.Optional(t.String()),
+      }),
+    }
+  )
   .get("/scan-task", () => videoFileManager.getScanTaskSnapshot())
   .post(
     "/scan/start",

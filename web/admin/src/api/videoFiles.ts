@@ -2,7 +2,9 @@ import { del, get, post, put } from './client';
 import type { PaginatedResult } from './types';
 import type {
   ApplyVideoFileIndexStrategyResult,
+  CursorListResult,
   VideoFile,
+  VideoFileFolderItem,
   VideoFileIndexStrategy,
   VideoFileScanTask,
 } from './types';
@@ -36,6 +38,36 @@ export async function searchVideoFiles(
 
 export async function fetchVideoFile(id: number): Promise<VideoFile> {
   return get<VideoFile>(`${BASE}/${id}`);
+}
+
+export async function fetchVideoFileFolderChildren(params: {
+  fileDirId: number;
+  folderPath?: string;
+  cursor?: string;
+  pageSize?: number;
+}): Promise<CursorListResult<VideoFileFolderItem>> {
+  const query: Record<string, string | number> = {
+    fileDirId: params.fileDirId,
+    pageSize: params.pageSize ?? 50,
+  };
+  if (params.folderPath) query.folderPath = params.folderPath;
+  if (params.cursor) query.cursor = params.cursor;
+  return get<CursorListResult<VideoFileFolderItem>>(`${BASE}/folders/children`, query);
+}
+
+export async function fetchVideoFilesByFolder(params: {
+  fileDirId: number;
+  folderPath?: string;
+  cursor?: string;
+  pageSize?: number;
+}): Promise<CursorListResult<VideoFile>> {
+  const query: Record<string, string | number> = {
+    fileDirId: params.fileDirId,
+    pageSize: params.pageSize ?? 50,
+  };
+  if (params.folderPath) query.folderPath = params.folderPath;
+  if (params.cursor) query.cursor = params.cursor;
+  return get<CursorListResult<VideoFile>>(`${BASE}/folders/files`, query);
 }
 
 export async function fetchVideoFileScanTask(): Promise<VideoFileScanTask | null> {

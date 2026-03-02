@@ -14,6 +14,7 @@ import {
   Typography,
   CircularProgress,
   TableSortLabel,
+  Tooltip,
 } from '@mui/material';
 import { Search } from 'lucide-react';
 
@@ -24,6 +25,11 @@ const parseWidth = (w: string | number | undefined): number => {
     return Number.isNaN(n) ? 120 : n;
   }
   return 120;
+};
+
+const isFileLikeColumn = (id: string): boolean => {
+  const lower = id.toLowerCase();
+  return lower.includes('file') || lower === 'path' || lower.includes('folderpath');
 };
 
 export interface DataTableColumn<T> {
@@ -85,55 +91,49 @@ export function DataTable<T extends { id?: number }>({
   const [internalSearch, setInternalSearch] = useState('');
   const searchInput = searchValue !== undefined ? searchValue : internalSearch;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const storageKey = tableId ? `${STORAGE_PREFIX}${tableId}` : null;
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    const base = Object.fromEntries(columns.map((col) => [col.id, parseWidth(col.width)]));
+    if (!storageKey) return base;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return base;
+      const saved = JSON.parse(raw) as Record<string, number>;
+      if (!saved || typeof saved !== 'object') return base;
+      for (const col of columns) {
+        const w = saved[col.id];
+        if (typeof w === 'number' && w >= 40) {
+          base[col.id] = w;
+        }
+      }
+      return base;
+    } catch {
+      return base;
+    }
+  });
 
   const defaultWidths = useMemo(
     () => Object.fromEntries(columns.map((col) => [col.id, parseWidth(col.width)])),
     [columns]
   );
-  const storageKey = tableId ? `${STORAGE_PREFIX}${tableId}` : null;
-  const savedWidthsRef = useRef<Record<string, number> | null | undefined>(undefined);
-  if (storageKey && savedWidthsRef.current === undefined) {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      savedWidthsRef.current = raw ? (JSON.parse(raw) as Record<string, number>) : null;
-    } catch {
-      savedWidthsRef.current = null;
-    }
-  }
-  const initialWidths = useMemo(() => {
-    const base = { ...defaultWidths };
-    const saved = storageKey ? savedWidthsRef.current : null;
-    if (saved && typeof saved === 'object') {
-      for (const col of columns) {
-        const w = saved[col.id];
-        if (typeof w === 'number' && w >= 40) base[col.id] = w;
+  const effectiveColumnWidths = useMemo(() => {
+    const next = { ...defaultWidths, ...columnWidths };
+    for (const col of columns) {
+      if (next[col.id] === undefined) {
+        next[col.id] = parseWidth(col.width);
       }
     }
-    return base;
-  }, [columns, defaultWidths, storageKey]);
-
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(initialWidths);
-  useEffect(() => {
-    setColumnWidths((prev) => {
-      const next = { ...defaultWidths, ...prev };
-      let changed = false;
-      for (const col of columns) {
-        const def = parseWidth(col.width);
-        if (next[col.id] === undefined) {
-          next[col.id] = def;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [columns, defaultWidths]);
+    return next;
+  }, [columns, columnWidths, defaultWidths]);
 
   useEffect(() => {
     if (!storageKey) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(columnWidths));
-    } catch {}
-  }, [storageKey, columnWidths]);
+      localStorage.setItem(storageKey, JSON.stringify(effectiveColumnWidths));
+    } catch {
+      // ignore quota/security errors from localStorage
+    }
+  }, [storageKey, effectiveColumnWidths]);
 
   const resizeRef = useRef<{ colId: string; startX: number; startW: number } | null>(null);
   const [resizeActive, setResizeActive] = useState(false);
@@ -145,11 +145,11 @@ export function DataTable<T extends { id?: number }>({
       resizeRef.current = {
         colId,
         startX: e.clientX,
-        startW: columnWidths[colId] ?? 120,
+        startW: effectiveColumnWidths[colId] ?? 120,
       };
       setResizeActive(true);
     },
-    [columnWidths]
+    [effectiveColumnWidths]
   );
 
   useEffect(() => {
@@ -223,7 +223,7 @@ export function DataTable<T extends { id?: number }>({
                 const sortKey = col.sortKey ?? col.id;
                 const isSortable = col.sortable && onSortChange;
                 const isActive = sortBy === sortKey;
-                const w = columnWidths[col.id] ?? parseWidth(col.width);
+                const w = effectiveColumnWidths[col.id] ?? parseWidth(col.width);
                 return (
                   <TableCell
                     key={col.id}
@@ -281,7 +281,7 @@ export function DataTable<T extends { id?: number }>({
                   </TableCell>
                 );
               })}
-              {actions && <TableCell align="right" sx={{ width: 120, minWidth: 120 }}>操作</TableCell>}
+              {actions && <TableCell align="right" sx={{ width: 220, minWidth: 220 }}>操作</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -301,20 +301,43 @@ export function DataTable<T extends { id?: number }>({
               rows.map((row) => (
                 <TableRow key={(row as { id?: number }).id ?? JSON.stringify(row)} hover>
                   {columns.map((col) => {
-                    const w = columnWidths[col.id] ?? parseWidth(col.width);
+                    const w = effectiveColumnWidths[col.id] ?? parseWidth(col.width);
+                    const rendered = col.render(row);
+                    const shouldClamp = isFileLikeColumn(col.id) && (typeof rendered === 'string' || typeof rendered === 'number');
                     return (
                       <TableCell
                         key={col.id}
                         align={col.align ?? 'left'}
                         sx={{ width: w, minWidth: w, maxWidth: w, overflow: 'hidden' }}
                       >
-                        {col.render(row)}
+                        {shouldClamp ? (
+                          <Tooltip title={String(rendered)} arrow placement="top-start">
+                            <Box
+                              sx={{
+                                display: '-webkit-box',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                lineHeight: 1.35,
+                                maxHeight: '2.7em',
+                                wordBreak: 'break-all',
+                              }}
+                            >
+                              {String(rendered)}
+                            </Box>
+                          </Tooltip>
+                        ) : (
+                          rendered
+                        )}
                       </TableCell>
                     );
                   })}
                   {actions && (
-                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                      {actions(row)}
+                    <TableCell align="right" sx={{ width: 220, minWidth: 220 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5, flexWrap: 'wrap' }}>
+                        {actions(row)}
+                      </Box>
                     </TableCell>
                   )}
                 </TableRow>

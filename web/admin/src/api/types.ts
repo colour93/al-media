@@ -150,6 +150,17 @@ export interface ApplyVideoFileIndexStrategyResult {
   fileIds: number[];
 }
 
+export interface CursorListResult<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+export interface VideoFileFolderItem {
+  fileDirId: number;
+  path: string;
+  name: string;
+}
+
 export interface Video {
   id: number;
   title: string;
