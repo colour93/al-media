@@ -394,7 +394,7 @@ class VideoFileManager {
       return false;
     }
 
-    const thumbBuf = await ffmpegManager.generateThumbnail(path, { durationSec });
+    const thumbBuf = await ffmpegManager.generateThumbnail(path, { durationSec: durationSeconds });
     if (thumbBuf) {
       const thumbnailKey = `${uniqueId}.jpg`;
       await fileManager.write(thumbnailKey, FileCategory.Thumbnails, thumbBuf);
