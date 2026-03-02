@@ -150,6 +150,20 @@ export type InferVideoInfoResult = {
   actors?: string[];
 };
 
+type VideoInferTaskSource = "admin-infer-preview" | "video-re-extract" | "video-auto-extract";
+
+export type VideoInferTaskSnapshot = {
+  status: "idle" | "processing";
+  waitingCount: number;
+  current: {
+    source: VideoInferTaskSource;
+    target: string;
+    startedAt: string;
+  } | null;
+  lastFinishedAt: string | null;
+  lastError: string | null;
+};
+
 const extractVideoInfoTool = {
   type: "function" as const,
   function: {
@@ -188,8 +202,64 @@ class VideosService {
 
   private logger = createLogger("videos-service");
 
+  private inferQueue: Promise<void> = Promise.resolve();
+
+  private inferWaitingCount = 0;
+
+  private inferRunning: { source: VideoInferTaskSource; target: string; startedAt: Date } | null = null;
+
+  private inferLastFinishedAt: Date | null = null;
+
+  private inferLastError: string | null = null;
+
   constructor() {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: process.env.OPENAI_BASE_URL });
+  }
+
+  getInferTaskSnapshot(): VideoInferTaskSnapshot {
+    return {
+      status: this.inferRunning ? "processing" : "idle",
+      waitingCount: this.inferWaitingCount,
+      current: this.inferRunning
+        ? {
+            source: this.inferRunning.source,
+            target: this.inferRunning.target,
+            startedAt: this.inferRunning.startedAt.toISOString(),
+          }
+        : null,
+      lastFinishedAt: this.inferLastFinishedAt ? this.inferLastFinishedAt.toISOString() : null,
+      lastError: this.inferLastError,
+    };
+  }
+
+  private enqueueInferTask<T>(
+    source: VideoInferTaskSource,
+    target: string,
+    task: () => Promise<T>
+  ): Promise<T> {
+    this.inferWaitingCount += 1;
+    const execute = async () => {
+      this.inferWaitingCount = Math.max(0, this.inferWaitingCount - 1);
+      this.inferRunning = { source, target, startedAt: new Date() };
+      try {
+        const result = await task();
+        this.inferLastError = null;
+        return result;
+      } catch (error) {
+        this.inferLastError = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        this.inferLastFinishedAt = new Date();
+        this.inferRunning = null;
+      }
+    };
+
+    const next = this.inferQueue.then(execute, execute);
+    this.inferQueue = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
   }
 
   private toLikePattern(value: string) {
@@ -780,7 +850,7 @@ class VideosService {
     return rows[0] ?? null;
   }
 
-  async inferVideoInfo(filename: string): Promise<InferVideoInfoResult> {
+  private async inferVideoInfoInternal(filename: string): Promise<InferVideoInfoResult> {
     const hints = await this.findMatchedHints(filename);
     const hintLines: string[] = [];
     if (hints.creatorGroups.length) {
@@ -839,6 +909,18 @@ class VideosService {
       distributors: args.distributors ?? [],
       actors: args.actors ?? [],
     });
+  }
+
+  async inferVideoInfo(
+    filename: string,
+    options?: {
+      source?: VideoInferTaskSource;
+      target?: string;
+    }
+  ): Promise<InferVideoInfoResult> {
+    const source = options?.source ?? "admin-infer-preview";
+    const target = options?.target ?? filename;
+    return this.enqueueInferTask(source, target, () => this.inferVideoInfoInternal(filename));
   }
 
   private async applyInferredInfo(
@@ -925,7 +1007,10 @@ class VideosService {
     let inferredInfo: InferVideoInfoResult | null = null;
 
     if (autoExtract) {
-      inferredInfo = await this.inferVideoInfo(basename(videoFile.fileKey));
+      inferredInfo = await this.inferVideoInfo(basename(videoFile.fileKey), {
+        source: "video-auto-extract",
+        target: videoFile.fileKey,
+      });
     }
 
     const raw = await db.transaction(async (tx) => {
@@ -983,7 +1068,10 @@ class VideosService {
     });
     if (!videoFile) return null;
 
-    const info = await this.inferVideoInfo(basename(videoFile.fileKey));
+    const info = await this.inferVideoInfo(basename(videoFile.fileKey), {
+      source: "video-re-extract",
+      target: `video:${videoId}:${videoFile.fileKey}`,
+    });
     const video = await db.transaction(async (tx) => {
       await this.applyInferredInfo(tx, videoId, info);
       return tx.query.videosTable.findFirst({

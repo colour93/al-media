@@ -316,6 +316,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
     },
     { params: t.Object({ id: t.String() }) }
   )
+  .get("/infer-task/status", () => videosService.getInferTaskSnapshot())
   .post(
     "/infer-video-info",
     async ({ body, set }) => {
@@ -324,7 +325,10 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         set.status = 400;
         return { message: "文件名必填" };
       }
-      const info = await videosService.inferVideoInfo(filename);
+      const info = await videosService.inferVideoInfo(filename, {
+        source: "admin-infer-preview",
+        target: filename,
+      });
       return info;
     },
     {

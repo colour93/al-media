@@ -1,6 +1,7 @@
 import { get, post, patch, del } from './client';
 import type { PaginatedResult } from './types';
 import type { Video } from './types';
+import type { VideoInferTask } from './types';
 
 const BASE = '/videos';
 
@@ -112,6 +113,10 @@ export async function insertFromVideoFile(data: {
 
 export async function reExtractVideoInfo(id: number): Promise<VideoDetail> {
   return post<VideoDetail>(`${BASE}/${id}/re-extract`, {});
+}
+
+export async function fetchVideoInferTask(): Promise<VideoInferTask> {
+  return get<VideoInferTask>(`${BASE}/infer-task/status`);
 }
 
 export async function captureThumbnail(

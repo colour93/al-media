@@ -54,7 +54,7 @@ import {
   useVideoFileIndexStrategyDelete,
   useApplyVideoFileIndexStrategy,
 } from '../hooks/useVideoFiles';
-import { useVideoInsertFromFile } from '../hooks/useVideos';
+import { useVideoInsertFromFile, useVideoInferTask } from '../hooks/useVideos';
 import { batchAddTagsToVideos, batchAddActorsToVideos, batchAddCreatorsToVideos } from '../api/videos';
 import { useActorsList } from '../hooks/useActors';
 import { useCreatorsList } from '../hooks/useCreators';
@@ -170,6 +170,17 @@ function formatScanStatus(status?: string): string {
   return scanStatusLabelMap[status] ?? status;
 }
 
+const inferSourceLabelMap: Record<string, string> = {
+  'admin-infer-preview': '手动预览推理',
+  'video-re-extract': '视频重新推断',
+  'video-auto-extract': '自动提取',
+};
+
+function formatInferSource(source?: string): string {
+  if (!source) return '未知来源';
+  return inferSourceLabelMap[source] ?? source;
+}
+
 export const Route = createFileRoute('/video-files')({
   validateSearch: validateListSearch,
   component: VideoFilesPage,
@@ -181,8 +192,9 @@ function VideoFilesPage() {
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useVideoFilesList(page, pageSize, keyword, sortBy, sortOrder);
-  const { data: fileDirsData } = useFileDirsList(1, 200, '');
+  const { data: fileDirsData } = useFileDirsList(1, 100, '');
   const { data: scanTask } = useVideoFileScanTask();
+  const { data: inferTask } = useVideoInferTask();
   const startScanMut = useStartVideoFileScanTask();
   const pauseScanMut = usePauseVideoFileScanTask();
   const resumeScanMut = useResumeVideoFileScanTask();
@@ -238,15 +250,23 @@ function VideoFilesPage() {
   const items = useMemo(() => (data?.items ?? []) as VideoFile[], [data?.items]);
   const total = data?.total ?? 0;
   const fileDirs = (fileDirsData?.items ?? []) as FileDir[];
+  const enabledFileDirs = useMemo(() => fileDirs.filter((dir) => dir.enabled), [fileDirs]);
   const actors = actorsData?.items ?? [];
   const creators = creatorsData?.items ?? [];
   const tags = (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[];
   const indexStrategies = (indexStrategiesData?.items ?? []) as VideoFileIndexStrategy[];
 
   useEffect(() => {
-    if (scanFileDirId !== '' || fileDirs.length === 0) return;
-    setScanFileDirId(fileDirs[0]?.id ?? '');
-  }, [fileDirs, scanFileDirId]);
+    if (enabledFileDirs.length === 0) {
+      if (scanFileDirId !== '') {
+        setScanFileDirId('');
+      }
+      return;
+    }
+    if (scanFileDirId === '' || !enabledFileDirs.some((dir) => dir.id === scanFileDirId)) {
+      setScanFileDirId(enabledFileDirs[0]?.id ?? '');
+    }
+  }, [enabledFileDirs, scanFileDirId]);
 
   const itemMap = useMemo(() => new Map(items.map((f) => [f.id, f])), [items]);
 
@@ -375,9 +395,12 @@ function VideoFilesPage() {
     resumeScanMut.isPending ||
     stopScanMut.isPending ||
     cancelScanMut.isPending;
+  const hasEnabledScanDir = enabledFileDirs.length > 0;
+  const inferTaskProcessing = inferTask?.status === 'processing';
 
   const handleStartScanTask = async (force: boolean) => {
     if (scanFileDirId === '') return;
+    if (!enabledFileDirs.some((dir) => dir.id === Number(scanFileDirId))) return;
     await startScanMut.mutateAsync({ fileDirId: Number(scanFileDirId), force });
   };
 
@@ -722,20 +745,26 @@ function VideoFilesPage() {
               onChange={(e) =>
                 setScanFileDirId(e.target.value === '' ? '' : Number(e.target.value))
               }
+              helperText={!hasEnabledScanDir ? '暂无已启用目录，请先到目录管理启用目录' : undefined}
               sx={{ minWidth: 220 }}
             >
               <MenuItem value="">请选择目录</MenuItem>
-              {fileDirs.map((dir) => (
+              {enabledFileDirs.map((dir) => (
                 <MenuItem key={dir.id} value={dir.id}>
                   {dir.path}
                 </MenuItem>
               ))}
+              {enabledFileDirs.length === 0 && (
+                <MenuItem value="" disabled>
+                  无可用目录
+                </MenuItem>
+              )}
             </TextField>
             <Button
               variant="outlined"
               size="small"
               onClick={() => handleStartScanTask(false)}
-              disabled={scanFileDirId === '' || isTaskActive || scanTaskMutating}
+              disabled={scanFileDirId === '' || !hasEnabledScanDir || isTaskActive || scanTaskMutating}
             >
               开始索引
             </Button>
@@ -743,7 +772,7 @@ function VideoFilesPage() {
               variant="contained"
               size="small"
               onClick={() => handleStartScanTask(true)}
-              disabled={scanFileDirId === '' || isTaskActive || scanTaskMutating}
+              disabled={scanFileDirId === '' || !hasEnabledScanDir || isTaskActive || scanTaskMutating}
             >
               强制重索引
             </Button>
@@ -752,7 +781,7 @@ function VideoFilesPage() {
               size="small"
               startIcon={isTaskPaused ? <Play size={14} /> : <Pause size={14} />}
               onClick={() => (isTaskPaused ? resumeScanMut.mutate() : pauseScanMut.mutate())}
-              disabled={!isTaskProcessing && !isTaskPaused}
+              disabled={(!isTaskProcessing && !isTaskPaused) || scanTaskMutating}
             >
               {isTaskPaused ? '继续' : '暂停'}
             </Button>
@@ -762,7 +791,7 @@ function VideoFilesPage() {
               size="small"
               startIcon={<Square size={14} />}
               onClick={() => stopScanMut.mutate()}
-              disabled={!isTaskActive}
+              disabled={!isTaskActive || scanTaskMutating}
             >
               停止
             </Button>
@@ -772,7 +801,7 @@ function VideoFilesPage() {
               size="small"
               startIcon={<X size={14} />}
               onClick={() => cancelScanMut.mutate()}
-              disabled={!isTaskActive}
+              disabled={!isTaskActive || scanTaskMutating}
             >
               取消
             </Button>
@@ -787,6 +816,29 @@ function VideoFilesPage() {
           进度：{scanProgressText}
           {scanTask?.currentFile ? ` · 当前：${scanTask.currentFile}` : ''}
           {scanTask?.error ? ` · 错误：${scanTask.error}` : ''}
+        </Typography>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1 }}>
+          <Box>
+            <Typography variant="h6">视频信息推理任务</Typography>
+            <Typography variant="body2" color="text.secondary">
+              状态：{inferTaskProcessing ? '进行中' : '空闲'}
+              {inferTask?.current?.source ? ` · 类型：${formatInferSource(inferTask.current.source)}` : ''}
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            排队：{inferTask?.waitingCount ?? 0}
+          </Typography>
+        </Box>
+        <Typography variant="caption" color="text.secondary">
+          {inferTask?.current
+            ? `当前：${inferTask.current.target}`
+            : inferTask?.lastFinishedAt
+              ? `最近完成：${new Date(inferTask.lastFinishedAt).toLocaleString()}`
+              : '暂无任务记录'}
+          {inferTask?.lastError ? ` · 最近错误：${inferTask.lastError}` : ''}
         </Typography>
       </Paper>
 

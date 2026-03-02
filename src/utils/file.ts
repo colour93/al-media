@@ -13,7 +13,7 @@ export async function getFileCount(dir: string, allowedExt?: Set<string>) {
     if (entry.isDirectory()) {
       count += await getFileCount(fullPath, allowedExt);
     } else {
-      if (allowedExt?.has(extname(fullPath))) count++
+      if (allowedExt?.has(extname(fullPath).toLowerCase())) count++
     }
   }
 

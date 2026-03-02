@@ -117,6 +117,20 @@ export interface VideoFileScanTask {
   force: boolean;
 }
 
+export type VideoInferTaskSource = 'admin-infer-preview' | 'video-re-extract' | 'video-auto-extract';
+
+export interface VideoInferTask {
+  status: 'idle' | 'processing';
+  waitingCount: number;
+  current: {
+    source: VideoInferTaskSource;
+    target: string;
+    startedAt: string;
+  } | null;
+  lastFinishedAt: string | null;
+  lastError: string | null;
+}
+
 export type VideoFileIndexStrategyMode = 'blacklist';
 
 export interface VideoFileIndexStrategy {

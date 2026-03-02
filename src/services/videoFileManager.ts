@@ -90,9 +90,6 @@ class VideoFileDirScanTask {
     this.error = null;
     this.force = force;
     this.totalFileCount = 0;
-    getFileCount(dir.path, ALLOWED_EXT).then(count => {
-      this.totalFileCount = count;
-    });
   }
 
   private async waitForResumeOrInterrupt() {
@@ -138,7 +135,7 @@ class VideoFileDirScanTask {
       const fullPath = join(dir, entry.name);
       if (entry.isDirectory()) {
         await this.processDir(fullPath);
-      } else {
+      } else if (ALLOWED_EXT.has(extname(fullPath).toLowerCase())) {
         await this.processFile(fullPath);
       }
     }
@@ -213,6 +210,7 @@ class VideoFileDirScanTask {
 
   private async run() {
     try {
+      this.totalFileCount = await getFileCount(this.dir.path, ALLOWED_EXT);
       await this.processDir(this.dir.path);
       if (this.cancelRequested) {
         this.status = "aborted";
@@ -471,7 +469,10 @@ class VideoFileManager {
   async initWatchers(dirs: string[]) {
     const toDeleteWathcerDirs = Array.from(this.watchers.keys()).filter(dir => !dirs.includes(dir));
     for (const dir of toDeleteWathcerDirs) {
-      this.watchers.get(dir)?.close();
+      const watcher = this.watchers.get(dir);
+      if (watcher) {
+        await watcher.close().catch(() => undefined);
+      }
       this.watchers.delete(dir);
     }
 

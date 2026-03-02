@@ -169,5 +169,6 @@
 ## 修改约定（建议）
 - 新增/修改接口时优先保持现有响应结构 `{ success, data/error }`。
 - 列表接口沿用 `page/pageSize/sortBy/sortOrder/q` 约定（见 `src/utils/pagination.ts`）。
+  - `pageSize` 当前后端限制为 `1-100`，超出会返回 `400`。
 - 不手改 `web/*/src/routeTree.gen.ts`（由 TanStack Router 插件生成）。
 - 需求变化先更新本文件和对应子项目 `AGENTS.md`，保证后续索引可追踪。

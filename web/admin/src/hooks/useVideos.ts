@@ -9,6 +9,7 @@ import {
   insertFromVideoFile,
   reExtractVideoInfo,
   captureThumbnail,
+  fetchVideoInferTask,
 } from '../api/videos';
 import { useSnackbar } from './useSnackbar';
 
@@ -16,6 +17,7 @@ const KEYS = {
   list: (page: number, pageSize: number, keyword: string, sortBy?: string, sortOrder?: 'asc' | 'desc') =>
     ['videos', 'list', page, pageSize, keyword, sortBy, sortOrder] as const,
   detail: (id: number) => ['videos', 'detail', id] as const,
+  inferTask: () => ['videos', 'inferTask'] as const,
 };
 
 export function useVideosList(
@@ -39,6 +41,14 @@ export function useVideo(id: number | null) {
     queryKey: KEYS.detail(id!),
     queryFn: () => fetchVideo(id!),
     enabled: id != null,
+  });
+}
+
+export function useVideoInferTask() {
+  return useQuery({
+    queryKey: KEYS.inferTask(),
+    queryFn: () => fetchVideoInferTask(),
+    refetchInterval: 1500,
   });
 }
 
@@ -115,6 +125,7 @@ export function useVideoInsertFromFile() {
     onSuccess: (video) => {
       qc.invalidateQueries({ queryKey: ['videos'] });
       qc.invalidateQueries({ queryKey: ['videoFiles'] });
+      qc.invalidateQueries({ queryKey: KEYS.inferTask() });
       showMessage('视频创建成功');
       return video;
     },
@@ -131,9 +142,13 @@ export function useVideoReExtract() {
     onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: ['videos'] });
       qc.invalidateQueries({ queryKey: KEYS.detail(id) });
+      qc.invalidateQueries({ queryKey: KEYS.inferTask() });
       showMessage('重新推断完成');
     },
-    onError: (err: Error) => showError(err?.message ?? '重新推断失败'),
+    onError: (err: Error) => {
+      qc.invalidateQueries({ queryKey: KEYS.inferTask() });
+      showError(err?.message ?? '重新推断失败');
+    },
   });
 }
 
