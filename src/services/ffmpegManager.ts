@@ -3,6 +3,8 @@ import { createLogger } from "../utils/logger";
 
 const THUMBNAIL_SEEK_SEC = process.env.THUMBNAIL_SEEK_SEC ? Number(process.env.THUMBNAIL_SEEK_SEC) : 1;
 const THUMBNAIL_WIDTH = process.env.THUMBNAIL_WIDTH ? Number(process.env.THUMBNAIL_WIDTH) : 320;
+const FFMPEG_BIN = process.env.FFMPEG_BIN?.trim() || "ffmpeg";
+const FFPROBE_BIN = process.env.FFPROBE_BIN?.trim() || "ffprobe";
 
 export class FfmpegManager {
   constructor() { }
@@ -13,7 +15,7 @@ export class FfmpegManager {
   async generateThumbnail(videoPath: string, seekSec?: number): Promise<Buffer | null> {
     const seek = seekSec ?? THUMBNAIL_SEEK_SEC;
     const proc = spawn([
-      "ffmpeg",
+      FFMPEG_BIN,
       "-y",
       "-ss",
       String(seek),
@@ -48,7 +50,7 @@ export class FfmpegManager {
 
   async getVideoDuration(path: string): Promise<number | null> {
     const proc = spawn([
-      "ffprobe",
+      FFPROBE_BIN,
       "-v",
       "error",
       "-show_entries",

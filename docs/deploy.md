@@ -36,9 +36,18 @@
 
 ### 构建镜像
 - `bun run docker:build`
+- 或 `docker build -t colour93/al-media:latest .`
+
+### 精简镜像（不内置 ffmpeg/ffprobe）
+- 构建：`bun run docker:build:slim`
+- 或 `docker build -f Dockerfile.slim -t colour93/al-media:slim .`
+- 该镜像不包含 `ffmpeg`/`ffprobe`，启动时需通过环境变量指定可执行路径，或保证它们在容器 `PATH` 可见：
+  - `FFMPEG_BIN`（默认 `ffmpeg`）
+  - `FFPROBE_BIN`（默认 `ffprobe`）
 
 ### 运行容器
-- `docker run --rm -p 39994:39994 --env-file .env al-media:latest`
+- 默认镜像：`docker run --rm -p 39994:39994 --env-file .env colour93/al-media:latest`
+- 精简镜像：`docker run --rm -p 39994:39994 --env-file .env -e FFMPEG_BIN=/path/to/ffmpeg -e FFPROBE_BIN=/path/to/ffprobe colour93/al-media:slim`
 
 如需持久化数据目录，请额外挂载卷并设置 `DATA_PATH`。
 
@@ -47,6 +56,9 @@
 - 生成发布目录（含前端资源）：`bun run package:binary`
 
 注意：二进制发布时，目标机器也需要安装 `ffmpeg` 与 `ffprobe`（本项目通过系统 PATH 调用）。
+如非 PATH 默认位置，可设置：
+- `FFMPEG_BIN`
+- `FFPROBE_BIN`
 
 发布目录：
 - `dist/release/al-media`（可执行文件）
