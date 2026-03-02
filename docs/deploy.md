@@ -32,6 +32,8 @@
 - `ADMIN_DIST_DIR`
 
 ## Docker 打包
+镜像已在运行层安装 `ffmpeg` 与 `ffprobe`，满足服务端缩略图/时长解析能力。
+
 ### 构建镜像
 - `bun run docker:build`
 
@@ -43,6 +45,8 @@
 ## 二进制打包（Bun compile）
 - 生成二进制：`bun run build:binary`
 - 生成发布目录（含前端资源）：`bun run package:binary`
+
+注意：二进制发布时，目标机器也需要安装 `ffmpeg` 与 `ffprobe`（本项目通过系统 PATH 调用）。
 
 发布目录：
 - `dist/release/al-media`（可执行文件）
