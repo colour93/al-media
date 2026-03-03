@@ -167,7 +167,7 @@ export function useEnqueueAllVideoReencodeTasks() {
       qc.invalidateQueries({ queryKey: KEYS.reencodeTask() });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       showMessage(
-        `批量入队完成：候选 ${result.candidateCount}，入队 ${result.enqueuedCount}，跳过 ${result.skippedCount}`
+        `批量入队完成（仅兼容风险）：候选 ${result.candidateCount}，入队 ${result.enqueuedCount}，跳过 ${result.skippedCount}`
       );
     },
     onError: (err: Error) => showError(err?.message ?? '批量加入重编码队列失败'),

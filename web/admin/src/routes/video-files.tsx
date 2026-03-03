@@ -1546,7 +1546,7 @@ function VideoFilesPage() {
               onClick={() => setReencodeAllDeleteConfirmOpen(true)}
               disabled={enqueueAllReencodeMut.isPending}
             >
-              全部重编码并删源文件
+              重编码兼容风险并删源
             </Button>
             <Button
               variant="outlined"
@@ -2019,7 +2019,7 @@ function VideoFilesPage() {
 
       <DeleteConfirm
         open={reencodeAllDeleteConfirmOpen}
-        message="确定要将全部源视频加入重编码队列并在完成后删除源文件吗？为避免重复转码，已自动排除已有 sourceVideoFileId 的输出文件。"
+        message="确定要将全部 Web 兼容风险文件加入重编码队列并在完成后删除源文件吗？为避免重复转码，已自动排除已有 sourceVideoFileId 的输出文件。"
         onClose={() => setReencodeAllDeleteConfirmOpen(false)}
         onConfirm={handleEnqueueAllReencodeAndDeleteSource}
         loading={enqueueAllReencodeMut.isPending}

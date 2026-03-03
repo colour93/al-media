@@ -8,6 +8,7 @@ import { fileDirsTable } from "../entities/FileDir";
 import { ffmpegManager } from "./ffmpegManager";
 import { videoFileManager } from "./videoFileManager";
 import { createLogger } from "../utils/logger";
+import { evaluateVideoWebCompatibility } from "../utils/videoWebCompatibility";
 
 export type VideoReencodeTaskSnapshot = {
   status: "idle" | "processing";
@@ -342,12 +343,27 @@ class VideoReencodeManager {
   async enqueueAll(options?: EnqueueReencodeOptions): Promise<EnqueueAllReencodeResult> {
     const deleteSourceAfterSuccess = options?.deleteSourceAfterSuccess ?? false;
     const rawCandidates = await db
-      .select({ id: videoFilesTable.id, fileKey: videoFilesTable.fileKey })
+      .select({
+        id: videoFilesTable.id,
+        fileKey: videoFilesTable.fileKey,
+        videoCodec: videoFilesTable.videoCodec,
+        audioCodec: videoFilesTable.audioCodec,
+        mp4MoovBeforeMdat: videoFilesTable.mp4MoovBeforeMdat,
+      })
       .from(videoFilesTable)
       .where(isNull(videoFilesTable.sourceVideoFileId))
       .orderBy(asc(videoFilesTable.id));
     const webOutputFilePattern = /\.web(?:\.\d+)?\.mp4$/i;
-    const candidates = rawCandidates.filter((row) => !webOutputFilePattern.test(row.fileKey));
+    const candidates = rawCandidates.filter((row) => {
+      if (webOutputFilePattern.test(row.fileKey)) return false;
+      const compatibility = evaluateVideoWebCompatibility({
+        fileKey: row.fileKey,
+        videoCodec: row.videoCodec,
+        audioCodec: row.audioCodec,
+        mp4MoovBeforeMdat: row.mp4MoovBeforeMdat,
+      });
+      return compatibility.webCompatible === false;
+    });
 
     let enqueuedCount = 0;
     let skippedCount = 0;
