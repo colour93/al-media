@@ -118,6 +118,7 @@ export class FfmpegManager {
     });
 
     const { stdoutText, stderrText, exitCode } = await this.readProcessOutput(proc);
+    this.logger.debug(`ffprobe 输出: ${stdoutText.trim()}`);
     if (exitCode !== 0 || !stdoutText.trim()) {
       if (stderrText.trim()) {
         this.logger.warn(`ffprobe 读取媒体信息失败: ${path}, ${stderrText.trim()}`);
