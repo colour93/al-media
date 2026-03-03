@@ -5,7 +5,7 @@ import {
   fetchActor,
   createActor,
   updateActor,
-  deleteActor,
+  deleteActorWithOptions,
   mergeActors,
 } from '../api/actors';
 import { useSnackbar } from './useSnackbar';
@@ -80,9 +80,17 @@ export function useActorDelete() {
   const { showError, showMessage } = useSnackbar();
 
   return useMutation({
-    mutationFn: (id: number) => deleteActor(id),
+    mutationFn: (input: number | { id: number; force?: boolean }) => {
+      if (typeof input === 'number') {
+        return deleteActorWithOptions(input);
+      }
+      return deleteActorWithOptions(input.id, { force: input.force });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['actors'] });
+      qc.invalidateQueries({ queryKey: ['videos'] });
+      qc.invalidateQueries({ queryKey: ['creators'] });
+      qc.invalidateQueries({ queryKey: ['bindingStrategies'] });
       showMessage('删除成功');
     },
     onError: (err: Error) => showError(err?.message ?? '删除失败'),

@@ -14,6 +14,7 @@ import { ffmpegManager } from "./ffmpegManager";
 import { videoFileUniquesTable } from "../entities/VideoFileUnique";
 import { fileManager, FileCategory } from "./fileManager";
 import { videoFileIndexStrategiesService } from "./videoFileIndexStrategies";
+import { inspectMp4MoovAtom } from "../utils/mp4Atom";
 
 const ALLOWED_EXT = new Set([
   ".mp4",
@@ -44,6 +45,7 @@ type ScanTaskStatus = "pending" | "paused" | "processing" | "completed" | "faile
 
 type ProcessFileOptions = {
   force?: boolean;
+  skipAutoVideoBind?: boolean;
 };
 
 type StartScanTaskOptions = {
@@ -327,23 +329,36 @@ class VideoFileManager {
     }
 
     const { size, mtime } = await stat(path);
+    const ext = extname(relativePath).toLowerCase();
+    const isMp4 = ext === ".mp4";
+    const mediaMetadataIncomplete =
+      !!record &&
+      (record.videoCodec == null ||
+        (isMp4 && (record.mp4MoovAtomOffset == null || record.mp4MoovBeforeMdat == null)));
+
     if (
       !options.force &&
       record &&
       size === Number(record.fileSize) &&
-      mtime.getTime() === record.fileModifiedAt.getTime()
+      mtime.getTime() === record.fileModifiedAt.getTime() &&
+      !mediaMetadataIncomplete
     ) {
       this.logger.debug(`文件未变更，跳过文件: ${path}`);
       return true;
     }
 
     const uniqueId = await getFileUniqueId(path);
-    const durationRaw = await ffmpegManager.getVideoDuration(path);
+    const mediaInfo = await ffmpegManager.getVideoMediaInfo(path);
+    const durationRaw = mediaInfo.durationSec;
     const durationSeconds = durationRaw == null ? 0 : durationRaw;
     if (Number.isNaN(durationSeconds)) {
       this.logger.warn(`无法解析视频时长，跳过文件: ${path}`);
       return false;
     }
+    const mp4MoovInfo =
+      isMp4
+        ? await inspectMp4MoovAtom(path)
+        : { moovOffset: null, mdatOffset: null, moovBeforeMdat: null };
 
     let videoFileId: number | null = null;
     try {
@@ -365,6 +380,11 @@ class VideoFileManager {
               fileModifiedAt: mtime,
               fileDirId: dir.id,
               videoDuration: Math.round(durationSeconds),
+              videoCodec: mediaInfo.videoCodec,
+              audioCodec: mediaInfo.audioCodec,
+              mp4MoovAtomOffset: mp4MoovInfo.moovOffset,
+              mp4MdatAtomOffset: mp4MoovInfo.mdatOffset,
+              mp4MoovBeforeMdat: mp4MoovInfo.moovBeforeMdat,
               updatedAt: new Date(),
             })
             .where(eq(videoFilesTable.id, record.id))
@@ -380,6 +400,11 @@ class VideoFileManager {
               fileModifiedAt: mtime,
               fileDirId: dir.id,
               videoDuration: Math.round(durationSeconds),
+              videoCodec: mediaInfo.videoCodec,
+              audioCodec: mediaInfo.audioCodec,
+              mp4MoovAtomOffset: mp4MoovInfo.moovOffset,
+              mp4MdatAtomOffset: mp4MoovInfo.mdatOffset,
+              mp4MoovBeforeMdat: mp4MoovInfo.moovBeforeMdat,
             })
             .returning({ id: videoFilesTable.id });
           videoFileId = created[0]?.id ?? null;
@@ -413,32 +438,36 @@ class VideoFileManager {
       }
     }
 
-    const videoFile = await db.query.videoFilesTable.findFirst({
-      where: eq(videoFilesTable.id, videoFileId),
-    });
-    if (videoFile?.fileDirId != null) {
-      const content = await db.query.videoUniqueContentsTable.findFirst({
-        where: eq(videoUniqueContentsTable.uniqueId, uniqueId),
-        columns: { videoId: true },
+    if (!options.skipAutoVideoBind) {
+      const videoFile = await db.query.videoFilesTable.findFirst({
+        where: eq(videoFilesTable.id, videoFileId),
       });
-      if (!content) {
-        const video = await (await import("./videos")).videosService.insertVideoFromVideoFile(
-          videoFile as VideoFile,
-          { autoExtract: true, waitForAutoExtract: false }
-        );
-        if (video) {
-          this.logger.debug(`已自动创建视频并应用策略: ${path}`);
+      if (videoFile?.fileDirId != null) {
+        const content = await db.query.videoUniqueContentsTable.findFirst({
+          where: eq(videoUniqueContentsTable.uniqueId, uniqueId),
+          columns: { videoId: true },
+        });
+        if (!content) {
+          const video = await (await import("./videos")).videosService.insertVideoFromVideoFile(
+            videoFile as VideoFile,
+            { autoExtract: true, waitForAutoExtract: false }
+          );
+          if (video) {
+            this.logger.debug(`已自动创建视频并应用策略: ${path}`);
+          }
+        } else {
+          await (await import("./bindingStrategies")).bindingStrategiesService.applyMatchingStrategiesForVideoFile(
+            { fileDirId: videoFile.fileDirId, fileKey: videoFile.fileKey },
+            content.videoId
+          );
+          this.logger.debug(`已自动应用策略: ${path}`);
         }
-      } else {
-        await (await import("./bindingStrategies")).bindingStrategiesService.applyMatchingStrategiesForVideoFile(
-          { fileDirId: videoFile.fileDirId, fileKey: videoFile.fileKey },
-          content.videoId
-        );
-        this.logger.debug(`已自动应用策略: ${path}`);
       }
     }
 
-    this.logger.debug(`文件已处理: ${path}, 唯一ID: ${uniqueId}, 时长: ${durationSeconds}秒`);
+    this.logger.debug(
+      `文件已处理: ${path}, 唯一ID: ${uniqueId}, 时长: ${durationSeconds}秒, 视频编码: ${mediaInfo.videoCodec ?? "-"}, 音频编码: ${mediaInfo.audioCodec ?? "-"}, moov前置: ${mp4MoovInfo.moovBeforeMdat ?? "-"}`
+    );
     return true;
   }
 

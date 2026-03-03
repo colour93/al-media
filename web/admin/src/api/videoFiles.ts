@@ -6,6 +6,7 @@ import type {
   VideoFile,
   VideoFileFolderItem,
   VideoFileIndexStrategy,
+  VideoReencodeTask,
   VideoFileScanTask,
 } from './types';
 
@@ -72,6 +73,14 @@ export async function fetchVideoFilesByFolder(params: {
 
 export async function fetchVideoFileScanTask(): Promise<VideoFileScanTask | null> {
   return get<VideoFileScanTask | null>(`${BASE}/scan-task`);
+}
+
+export async function fetchVideoReencodeTask(): Promise<VideoReencodeTask> {
+  return get<VideoReencodeTask>(`${BASE}/reencode-task`);
+}
+
+export async function enqueueVideoReencodeTask(videoFileId: number): Promise<VideoReencodeTask> {
+  return post<VideoReencodeTask>(`${BASE}/reencode`, { videoFileId });
 }
 
 export async function startVideoFileScanTask(data: {

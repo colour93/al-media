@@ -20,6 +20,7 @@ export interface EntityCreateAutocompleteProps<T extends { id: number; name: str
   options?: T[];
   value: T[];
   onChange: (ids: number[]) => void;
+  onSelectionObjectsChange?: (items: T[]) => void;
   getOptionLabel: (opt: T) => string;
   renderOption?: (props: React.HTMLAttributes<HTMLLIElement>, opt: T) => React.ReactNode;
   renderTags?: (value: T[], getTagProps: (params: { index: number }) => Record<string, unknown>) => React.ReactNode;
@@ -41,6 +42,7 @@ export function EntityCreateAutocomplete<T extends { id: number; name: string }>
   options = [],
   value,
   onChange,
+  onSelectionObjectsChange,
   getOptionLabel,
   renderOption,
   renderTags,
@@ -124,6 +126,7 @@ export function EntityCreateAutocomplete<T extends { id: number; name: string }>
   ) => {
     if (reason === 'clear') {
       onChange([]);
+      onSelectionObjectsChange?.([]);
       return;
     }
     const createSelected = newValue.find(isCreateOption);
@@ -133,7 +136,9 @@ export function EntityCreateAutocomplete<T extends { id: number; name: string }>
       try {
         const created = await onCreate(createSelected.name);
         onCreated?.(created);
-        onChange([...new Set([...value.map((v) => v.id), created.id])]);
+        const nextSelected = mergeUnique([...value, created]);
+        onChange(nextSelected.map((item) => item.id));
+        onSelectionObjectsChange?.(nextSelected);
         setInputValue('');
         setRemoteItems((prev) => mergeUnique([...prev, created]));
       } finally {
@@ -141,7 +146,9 @@ export function EntityCreateAutocomplete<T extends { id: number; name: string }>
       }
       return;
     }
-    onChange(newValue.filter((o): o is T => !isCreateOption(o)).map((o) => o.id));
+    const selected = newValue.filter((o): o is T => !isCreateOption(o));
+    onChange(selected.map((o) => o.id));
+    onSelectionObjectsChange?.(selected);
   };
 
   return (

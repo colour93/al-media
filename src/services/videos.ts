@@ -25,6 +25,7 @@ import type { PaginatedResult } from "../utils/pagination";
 import OpenAI from "openai";
 import { createLogger } from "../utils/logger";
 import { buildCommonSignedVideoFileUrl, buildSignedVideoFileUrl } from "../utils/videoFileSign";
+import { evaluateVideoWebCompatibility } from "../utils/videoWebCompatibility";
 
 export type CreateVideoInput = {
   title: string;
@@ -314,6 +315,45 @@ class VideosService {
     return Array.from(deduped.values());
   }
 
+  private attachVideoMetaAndCompatibility(
+    shapedVideos: unknown[],
+    metaMap: Map<number, { videoDuration?: number; fileSize?: number; playCount: number }>,
+    videoFileInfoMap: Map<
+      number,
+      {
+        id: number;
+        fileKey: string;
+        videoCodec: string | null;
+        audioCodec: string | null;
+        mp4MoovBeforeMdat: boolean | null;
+      }
+    >
+  ) {
+    return shapedVideos.map((s) => {
+      const videoId = (s as { id: number }).id;
+      const meta = metaMap.get(videoId);
+      const videoFileInfo = videoFileInfoMap.get(videoId) ?? null;
+      const compatibility = evaluateVideoWebCompatibility({
+        fileKey: videoFileInfo?.fileKey ?? null,
+        videoCodec: videoFileInfo?.videoCodec ?? null,
+        audioCodec: videoFileInfo?.audioCodec ?? null,
+        mp4MoovBeforeMdat: videoFileInfo?.mp4MoovBeforeMdat ?? null,
+      });
+      return {
+        ...s,
+        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+        playCount: meta?.playCount ?? 0,
+        ...(videoFileInfo ? {
+          videoFileVideoCodec: videoFileInfo.videoCodec,
+          videoFileAudioCodec: videoFileInfo.audioCodec,
+          videoFileMp4MoovBeforeMdat: videoFileInfo.mp4MoovBeforeMdat,
+        } : {}),
+        ...compatibility,
+      };
+    });
+  }
+
   private extractCandidateNames(filename: string) {
     const name = filename.replace(/\.[^.]+$/, "");
     const candidates: string[] = [];
@@ -450,16 +490,12 @@ class VideosService {
       db.$count(videosTable),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
-    const enriched = shaped.map((s) => {
-      const meta = metaMap.get((s as { id: number }).id);
-      return {
-        ...s,
-        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
-        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
-        playCount: meta?.playCount ?? 0,
-      };
-    });
+    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const [metaMap, videoFileInfoMap] = await Promise.all([
+      this.getVideoFileMetaMap(videoIds),
+      this.getVideoFileInfoMapForVideos(videoIds),
+    ]);
+    const enriched = this.attachVideoMetaAndCompatibility(shaped, metaMap, videoFileInfoMap);
     return { page, pageSize, total: total ?? 0, items: enriched };
   }
 
@@ -484,16 +520,12 @@ class VideosService {
       db.$count(videosTable, condition),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
-    const enriched = shaped.map((s) => {
-      const meta = metaMap.get((s as { id: number }).id);
-      return {
-        ...s,
-        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
-        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
-        playCount: meta?.playCount ?? 0,
-      };
-    });
+    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const [metaMap, videoFileInfoMap] = await Promise.all([
+      this.getVideoFileMetaMap(videoIds),
+      this.getVideoFileInfoMapForVideos(videoIds),
+    ]);
+    const enriched = this.attachVideoMetaAndCompatibility(shaped, metaMap, videoFileInfoMap);
     return { page, pageSize, total: total ?? 0, items: enriched };
   }
 
@@ -531,6 +563,12 @@ class VideosService {
             : buildSignedVideoFileUrl(videoFileInfo.id)
           : null;
         const meta = metaMap.get(videoId);
+        const compatibility = evaluateVideoWebCompatibility({
+          fileKey: videoFileInfo?.fileKey ?? null,
+          videoCodec: videoFileInfo?.videoCodec ?? null,
+          audioCodec: videoFileInfo?.audioCodec ?? null,
+          mp4MoovBeforeMdat: videoFileInfo?.mp4MoovBeforeMdat ?? null,
+        });
         return {
           ...shaped,
           videoFileUrl,
@@ -538,6 +576,12 @@ class VideosService {
           ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
           ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
           playCount: meta?.playCount ?? 0,
+          ...(videoFileInfo ? {
+            videoFileVideoCodec: videoFileInfo.videoCodec,
+            videoFileAudioCodec: videoFileInfo.audioCodec,
+            videoFileMp4MoovBeforeMdat: videoFileInfo.mp4MoovBeforeMdat,
+          } : {}),
+          ...compatibility,
         };
       })
       .filter((item): item is NonNullable<typeof item> => item != null);
@@ -550,16 +594,12 @@ class VideosService {
       with: videoWithRelations,
     });
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
-    return shaped.map((s) => {
-      const meta = metaMap.get((s as { id: number }).id);
-      return {
-        ...s,
-        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
-        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
-        playCount: meta?.playCount ?? 0,
-      };
-    });
+    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const [metaMap, videoFileInfoMap] = await Promise.all([
+      this.getVideoFileMetaMap(videoIds),
+      this.getVideoFileInfoMapForVideos(videoIds),
+    ]);
+    return this.attachVideoMetaAndCompatibility(shaped, metaMap, videoFileInfoMap);
   }
 
   async findBanner() {
@@ -569,16 +609,12 @@ class VideosService {
       with: videoWithRelations,
     });
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
-    return shaped.map((s) => {
-      const meta = metaMap.get((s as { id: number }).id);
-      return {
-        ...s,
-        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
-        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
-        playCount: meta?.playCount ?? 0,
-      };
-    });
+    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const [metaMap, videoFileInfoMap] = await Promise.all([
+      this.getVideoFileMetaMap(videoIds),
+      this.getVideoFileInfoMapForVideos(videoIds),
+    ]);
+    return this.attachVideoMetaAndCompatibility(shaped, metaMap, videoFileInfoMap);
   }
 
   async findLatest(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
@@ -592,16 +628,12 @@ class VideosService {
       db.$count(videosTable),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const metaMap = await this.getVideoFileMetaMap(shaped.map((s) => (s as { id: number }).id));
-    const enriched = shaped.map((s) => {
-      const meta = metaMap.get((s as { id: number }).id);
-      return {
-        ...s,
-        ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
-        ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
-        playCount: meta?.playCount ?? 0,
-      };
-    });
+    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const [metaMap, videoFileInfoMap] = await Promise.all([
+      this.getVideoFileMetaMap(videoIds),
+      this.getVideoFileInfoMapForVideos(videoIds),
+    ]);
+    const enriched = this.attachVideoMetaAndCompatibility(shaped, metaMap, videoFileInfoMap);
     return { page, pageSize, total: total ?? 0, items: enriched };
   }
 
@@ -712,7 +744,13 @@ class VideosService {
   /** 获取视频关联的 video file id 和 fileKey（通过 video_unique_contents） */
   async getVideoFileInfoForVideo(
     videoId: number
-  ): Promise<{ id: number; fileKey: string } | null> {
+  ): Promise<{
+    id: number;
+    fileKey: string;
+    videoCodec: string | null;
+    audioCodec: string | null;
+    mp4MoovBeforeMdat: boolean | null;
+  } | null> {
     const map = await this.getVideoFileInfoMapForVideos([videoId]);
     return map.get(videoId) ?? null;
   }
@@ -720,7 +758,18 @@ class VideosService {
   /** 批量获取视频关联的 video file id 和 fileKey（通过 video_unique_contents） */
   async getVideoFileInfoMapForVideos(
     videoIds: number[]
-  ): Promise<Map<number, { id: number; fileKey: string }>> {
+  ): Promise<
+    Map<
+      number,
+      {
+        id: number;
+        fileKey: string;
+        videoCodec: string | null;
+        audioCodec: string | null;
+        mp4MoovBeforeMdat: boolean | null;
+      }
+    >
+  > {
     const uniqueIds = normalizeIds(videoIds).filter((id) => Number.isInteger(id) && id > 0);
     if (uniqueIds.length === 0) return new Map();
     const rows = await db
@@ -728,15 +777,33 @@ class VideosService {
         videoId: videoUniqueContentsTable.videoId,
         id: videoFilesTable.id,
         fileKey: videoFilesTable.fileKey,
+        videoCodec: videoFilesTable.videoCodec,
+        audioCodec: videoFilesTable.audioCodec,
+        mp4MoovBeforeMdat: videoFilesTable.mp4MoovBeforeMdat,
       })
       .from(videoUniqueContentsTable)
       .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
       .where(inArray(videoUniqueContentsTable.videoId, uniqueIds))
       .orderBy(videoFilesTable.id);
-    const map = new Map<number, { id: number; fileKey: string }>();
+    const map = new Map<
+      number,
+      {
+        id: number;
+        fileKey: string;
+        videoCodec: string | null;
+        audioCodec: string | null;
+        mp4MoovBeforeMdat: boolean | null;
+      }
+    >();
     for (const row of rows) {
       if (!map.has(row.videoId)) {
-        map.set(row.videoId, { id: row.id, fileKey: row.fileKey });
+        map.set(row.videoId, {
+          id: row.id,
+          fileKey: row.fileKey,
+          videoCodec: row.videoCodec,
+          audioCodec: row.audioCodec,
+          mp4MoovBeforeMdat: row.mp4MoovBeforeMdat,
+        });
       }
     }
     return map;

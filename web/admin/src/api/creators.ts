@@ -73,6 +73,23 @@ export async function deleteCreator(id: number): Promise<Creator> {
   return del<Creator>(`${BASE}/${id}`);
 }
 
+export type CreatorDeleteImpact = {
+  videoRefs: number;
+  strategyRefs: number;
+  hasRefs: boolean;
+};
+
+export async function fetchCreatorDeleteImpact(id: number): Promise<CreatorDeleteImpact> {
+  return get<CreatorDeleteImpact>(`${BASE}/${id}/delete-impact`);
+}
+
+export async function deleteCreatorWithOptions(
+  id: number,
+  options?: { force?: boolean }
+): Promise<Creator> {
+  return del<Creator>(`${BASE}/${id}`, options?.force ? { force: true } : undefined);
+}
+
 export type MergeCreatorsResult = {
   targetId: number;
   mergedIds: number[];

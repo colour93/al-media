@@ -67,6 +67,24 @@ export async function deleteActor(id: number): Promise<Actor> {
   return del<Actor>(`${BASE}/${id}`);
 }
 
+export type ActorDeleteImpact = {
+  videoRefs: number;
+  creatorRefs: number;
+  strategyRefs: number;
+  hasRefs: boolean;
+};
+
+export async function fetchActorDeleteImpact(id: number): Promise<ActorDeleteImpact> {
+  return get<ActorDeleteImpact>(`${BASE}/${id}/delete-impact`);
+}
+
+export async function deleteActorWithOptions(
+  id: number,
+  options?: { force?: boolean }
+): Promise<Actor> {
+  return del<Actor>(`${BASE}/${id}`, options?.force ? { force: true } : undefined);
+}
+
 export type MergeActorsResult = {
   targetId: number;
   mergedIds: number[];

@@ -12,6 +12,12 @@ import {
 
 const normalizeTagIds = (ids: number[]) => [...new Set(ids)];
 
+function parseForceFlag(raw?: string): boolean {
+  if (!raw) return false;
+  const val = raw.trim().toLowerCase();
+  return val === "1" || val === "true" || val === "yes";
+}
+
 export const actorsRoutes = new Elysia({ prefix: "/actors" })
   .get(
     "/",
@@ -114,6 +120,27 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
         return { message: "演员不存在" };
       }
       return item;
+    },
+    { params: t.Object({ id: t.String() }) }
+  )
+  .get(
+    "/:id/delete-impact",
+    async ({ params, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      const actor = await actorsService.findById(id);
+      if (!actor) {
+        set.status = 404;
+        return { message: "演员不存在" };
+      }
+      const impact = await actorsService.getDeleteImpact(id);
+      return {
+        ...impact,
+        hasRefs: impact.videoRefs > 0 || impact.creatorRefs > 0 || impact.strategyRefs > 0,
+      };
     },
     { params: t.Object({ id: t.String() }) }
   )
@@ -224,22 +251,31 @@ export const actorsRoutes = new Elysia({ prefix: "/actors" })
   )
   .delete(
     "/:id",
-    async ({ params, set }) => {
+    async ({ params, query, set }) => {
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
         return { message: "ID 无效" };
       }
-      const { item, hasRefs } = await actorsService.delete(id);
-      if (hasRefs) {
+      const force = parseForceFlag(query.force);
+      const result = await actorsService.delete(id, { force });
+      if (result.blocked) {
         set.status = 409;
-        return { message: "演员被视频引用，无法删除" };
+        return {
+          message: "演员存在关联，继续删除将清理关联引用",
+          ...result.impact,
+          hasRefs: true,
+          canForce: true,
+        };
       }
-      if (!item) {
+      if (result.notFound || !result.item) {
         set.status = 404;
         return { message: "演员不存在" };
       }
-      return item;
+      return result.item;
     },
-    { params: t.Object({ id: t.String() }) }
+    {
+      params: t.Object({ id: t.String() }),
+      query: t.Object({ force: t.Optional(t.String()) }),
+    }
   );

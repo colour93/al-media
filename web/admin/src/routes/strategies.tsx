@@ -26,9 +26,9 @@ import { useFileDirsList } from '../hooks/useFileDirs';
 import { useTagsList } from '../hooks/useTags';
 import { useActorCreate, useActorsList } from '../hooks/useActors';
 import { useCreatorCreate, useCreatorsList } from '../hooks/useCreators';
-import { fetchTagsList, searchTags } from '../api/tags';
-import { fetchActorsList, searchActors } from '../api/actors';
-import { fetchCreatorsList, searchCreators } from '../api/creators';
+import { fetchTag, fetchTagsList, searchTags } from '../api/tags';
+import { fetchActor, fetchActorsList, searchActors } from '../api/actors';
+import { fetchCreator, fetchCreatorsList, searchCreators } from '../api/creators';
 import { fetchVideoFileFolderChildren } from '../api/videoFiles';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
@@ -246,6 +246,72 @@ function StrategiesPage() {
       cancelled = true;
     };
   }, [formFileDirId, formOpen, formType]);
+
+  useEffect(() => {
+    if (!formOpen) return;
+
+    const missingTagIds = formTagIds.filter((id) => !tags.some((item) => item.id === id));
+    const missingCreatorIds = formCreatorIds.filter((id) =>
+      !creators.some((item) => item.id === id)
+    );
+    const missingActorIds = formActorIds.filter((id) => !actors.some((item) => item.id === id));
+    if (
+      missingTagIds.length === 0 &&
+      missingCreatorIds.length === 0 &&
+      missingActorIds.length === 0
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadMissing = async () => {
+      const [tagRows, creatorRows, actorRows] = await Promise.all([
+        Promise.all(
+          missingTagIds.map(async (id) => {
+            try {
+              return await fetchTag(id);
+            } catch {
+              return null;
+            }
+          })
+        ),
+        Promise.all(
+          missingCreatorIds.map(async (id) => {
+            try {
+              return await fetchCreator(id);
+            } catch {
+              return null;
+            }
+          })
+        ),
+        Promise.all(
+          missingActorIds.map(async (id) => {
+            try {
+              return await fetchActor(id);
+            } catch {
+              return null;
+            }
+          })
+        ),
+      ]);
+
+      if (cancelled) return;
+      setAdditionalTags((prev) =>
+        mergeById(prev, tagRows.filter((item): item is Tag & { tagType?: TagType } => !!item))
+      );
+      setAdditionalCreators((prev) =>
+        mergeById(prev, creatorRows.filter((item): item is Creator => !!item))
+      );
+      setAdditionalActors((prev) =>
+        mergeById(prev, actorRows.filter((item): item is Actor => !!item))
+      );
+    };
+
+    void loadMissing();
+    return () => {
+      cancelled = true;
+    };
+  }, [actors, creators, formActorIds, formCreatorIds, formOpen, formTagIds, tags]);
 
   const handleFormClose = () => {
     setFormOpen(false);
@@ -503,6 +569,9 @@ function StrategiesPage() {
             options={tags}
             value={selectedTags as (Tag & { tagType?: TagType })[]}
             onChange={setFormTagIds}
+            onSelectionObjectsChange={(items) =>
+              setAdditionalTags((prev) => mergeById(prev, items))
+            }
             pageSize={ENTITY_SELECTOR_PAGE_SIZE}
             loadOptions={({ keyword, page, pageSize }) =>
               keyword.trim()
@@ -545,6 +614,9 @@ function StrategiesPage() {
             options={creators}
             value={selectedCreators}
             onChange={setFormCreatorIds}
+            onSelectionObjectsChange={(items) =>
+              setAdditionalCreators((prev) => mergeById(prev, items))
+            }
             pageSize={ENTITY_SELECTOR_PAGE_SIZE}
             loadOptions={({ keyword, page, pageSize }) =>
               keyword.trim()
@@ -562,6 +634,9 @@ function StrategiesPage() {
             options={actors}
             value={selectedActors}
             onChange={setFormActorIds}
+            onSelectionObjectsChange={(items) =>
+              setAdditionalActors((prev) => mergeById(prev, items))
+            }
             pageSize={ENTITY_SELECTOR_PAGE_SIZE}
             loadOptions={({ keyword, page, pageSize }) =>
               keyword.trim()

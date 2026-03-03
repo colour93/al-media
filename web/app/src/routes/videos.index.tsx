@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   Box,
   Typography,
@@ -11,12 +11,13 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-} from '@mui/material';
-import { Search } from 'lucide-react';
-import { VideoCard } from '../components/VideoCard/VideoCard';
-import { useVideosList } from '../hooks/useVideos';
+} from "@mui/material";
+import { Search } from "lucide-react";
+import { VideoCard } from "../components/VideoCard/VideoCard";
+import { useVideosList } from "../hooks/useVideos";
+import { videoGridSx } from "../styles/sx";
 
-export const Route = createFileRoute('/videos/')({
+export const Route = createFileRoute("/videos/")({
   validateSearch: (s: Record<string, unknown>) => {
     const pageRaw = Number(s?.page);
     const pageSizeRaw = Number(s?.pageSize);
@@ -26,7 +27,7 @@ export const Route = createFileRoute('/videos/')({
         Number.isInteger(pageSizeRaw) && pageSizeRaw >= 1 && pageSizeRaw <= 100
           ? pageSizeRaw
           : 12,
-      q: (s?.q as string) ?? '',
+      q: (s?.q as string) ?? "",
     };
   },
   component: VideosListPage,
@@ -50,15 +51,23 @@ function VideosListPage() {
       <Typography variant="h5" fontWeight={600} gutterBottom>
         视频列表
       </Typography>
-      <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+      <Box
+        sx={{
+          mb: 2,
+          display: "flex",
+          gap: 1,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
         <TextField
           size="small"
           placeholder="搜索视频…"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              navigate({ search: { page: 1, pageSize, q: searchInput || '' } });
+            if (e.key === "Enter") {
+              navigate({ search: { page: 1, pageSize, q: searchInput || "" } });
             }
           }}
           InputProps={{
@@ -76,7 +85,13 @@ function VideosListPage() {
             value={pageSize}
             label="每页"
             onChange={(e) =>
-              navigate({ search: { page: 1, pageSize: Number(e.target.value), q: q || '' } })
+              navigate({
+                search: {
+                  page: 1,
+                  pageSize: Number(e.target.value),
+                  q: q || "",
+                },
+              })
             }
           >
             <MenuItem value={12}>12</MenuItem>
@@ -86,35 +101,23 @@ function VideosListPage() {
         </FormControl>
       </Box>
       {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress />
         </Box>
       ) : (
         <>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: 'repeat(2, 1fr)',
-                sm: 'repeat(3, 1fr)',
-                md: 'repeat(4, 1fr)',
-                lg: 'repeat(5, 1fr)',
-                xl: 'repeat(6, 1fr)',
-              },
-              gap: 2,
-            }}
-          >
+          <Box sx={videoGridSx}>
             {items.map((v) => (
               <VideoCard key={v.id} video={v} />
             ))}
           </Box>
           {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+            <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
               <Pagination
                 count={totalPages}
                 page={page}
                 onChange={(_, p) =>
-                  navigate({ search: { page: p, pageSize, q: q || '' } })
+                  navigate({ search: { page: p, pageSize, q: q || "" } })
                 }
                 color="primary"
               />

@@ -4,8 +4,10 @@ import {
   cancelVideoFileScanTask,
   createVideoFileIndexStrategy,
   deleteVideoFileIndexStrategy,
+  enqueueVideoReencodeTask,
   fetchVideoFilesList,
   fetchVideoFileIndexStrategiesList,
+  fetchVideoReencodeTask,
   fetchVideoFileScanTask,
   searchVideoFiles,
   searchVideoFileIndexStrategies,
@@ -25,6 +27,7 @@ const KEYS = {
     ['videoFiles', 'list', page, pageSize, keyword, sortBy, sortOrder] as const,
   detail: (id: number) => ['videoFiles', 'detail', id] as const,
   scanTask: () => ['videoFiles', 'scanTask'] as const,
+  reencodeTask: () => ['videoFiles', 'reencodeTask'] as const,
   indexStrategies: (
     page: number,
     pageSize: number,
@@ -67,6 +70,14 @@ export function useVideoFileScanTask() {
   });
 }
 
+export function useVideoReencodeTask() {
+  return useQuery({
+    queryKey: KEYS.reencodeTask(),
+    queryFn: () => fetchVideoReencodeTask(),
+    refetchInterval: 1500,
+  });
+}
+
 export function useStartVideoFileScanTask() {
   const qc = useQueryClient();
   const { showError, showMessage } = useSnackbar();
@@ -78,6 +89,20 @@ export function useStartVideoFileScanTask() {
       showMessage('索引任务已启动');
     },
     onError: (err: Error) => showError(err?.message ?? '启动索引任务失败'),
+  });
+}
+
+export function useEnqueueVideoReencodeTask() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: (videoFileId: number) => enqueueVideoReencodeTask(videoFileId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.reencodeTask() });
+      showMessage('已加入重编码队列');
+    },
+    onError: (err: Error) => showError(err?.message ?? '加入重编码队列失败'),
   });
 }
 

@@ -35,6 +35,11 @@ export type UpdateCreatorInput = {
   tags?: number[];
 };
 
+export type CreatorDeleteImpact = {
+  videoRefs: number;
+  strategyRefs: number;
+};
+
 function toCreatorResponse(item: { creatorTags: Array<{ tag: unknown }> } & Record<string, unknown>) {
   if (!item) return null;
   const { creatorTags, ...creator } = item;
@@ -340,17 +345,69 @@ class CreatorsService {
     };
   }
 
-  async delete(id: number): Promise<{ item: unknown; hasRefs: boolean }> {
-    const refs = await db.query.videoCreatorsTable.findMany({
-      where: eq(videoCreatorsTable.creatorId, id),
-      limit: 1,
+  async getDeleteImpact(id: number): Promise<CreatorDeleteImpact> {
+    const [videoRefsCount, strategyRows] = await Promise.all([
+      db.$count(videoCreatorsTable, eq(videoCreatorsTable.creatorId, id)),
+      db.query.bindingStrategiesTable.findMany({
+        columns: { creatorIds: true },
+      }),
+    ]);
+    const strategyRefs = strategyRows.reduce((count, row) => {
+      const creatorIds = row.creatorIds ?? [];
+      return creatorIds.includes(id) ? count + 1 : count;
+    }, 0);
+    return {
+      videoRefs: Number(videoRefsCount ?? 0),
+      strategyRefs,
+    };
+  }
+
+  async delete(
+    id: number,
+    options?: { force?: boolean }
+  ): Promise<{ item: unknown; notFound: boolean; blocked: boolean; impact: CreatorDeleteImpact }> {
+    const existing = await db.query.creatorsTable.findFirst({
+      where: eq(creatorsTable.id, id),
+      columns: { id: true },
     });
-    if (refs.length > 0) {
-      return { item: null, hasRefs: true };
+    if (!existing) {
+      return {
+        item: null,
+        notFound: true,
+        blocked: false,
+        impact: { videoRefs: 0, strategyRefs: 0 },
+      };
     }
 
-    const rows = await db.delete(creatorsTable).where(eq(creatorsTable.id, id)).returning();
-    return { item: rows[0] ?? null, hasRefs: false };
+    const impact = await this.getDeleteImpact(id);
+    const hasRefs = impact.videoRefs > 0 || impact.strategyRefs > 0;
+    if (hasRefs && !options?.force) {
+      return { item: null, notFound: false, blocked: true, impact };
+    }
+
+    const item = await db.transaction(async (tx) => {
+      if (impact.videoRefs > 0) {
+        await tx.delete(videoCreatorsTable).where(eq(videoCreatorsTable.creatorId, id));
+      }
+      if (impact.strategyRefs > 0) {
+        const strategies = await tx.query.bindingStrategiesTable.findMany({
+          columns: { id: true, creatorIds: true },
+        });
+        for (const strategy of strategies) {
+          const creatorIds = strategy.creatorIds ?? [];
+          if (!creatorIds.includes(id)) continue;
+          const nextCreatorIds = creatorIds.filter((creatorId) => creatorId !== id);
+          await tx
+            .update(bindingStrategiesTable)
+            .set({ creatorIds: nextCreatorIds, updatedAt: new Date() })
+            .where(eq(bindingStrategiesTable.id, strategy.id));
+        }
+      }
+      const rows = await tx.delete(creatorsTable).where(eq(creatorsTable.id, id)).returning();
+      return rows[0] ?? null;
+    });
+
+    return { item, notFound: false, blocked: false, impact };
   }
 }
 

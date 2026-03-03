@@ -41,6 +41,11 @@ function formatInferTaskStatus(status?: string): string {
   return '空闲';
 }
 
+function formatReencodeTaskStatus(status?: string): string {
+  if (status === 'processing') return '进行中';
+  return '空闲';
+}
+
 function formatShortNumber(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '0';
   if (value >= 100000000) return `${(value / 100000000).toFixed(1)}亿`;
@@ -179,6 +184,7 @@ function DashboardPage() {
 
   const scanTask = data?.scanTask ?? null;
   const inferTask = data?.inferTask ?? null;
+  const reencodeTask = data?.reencodeTask ?? null;
   const scanProgressPercent =
     scanTask && scanTask.totalFileCount > 0
       ? Math.min(100, Math.floor((scanTask.currentFileCount / scanTask.totalFileCount) * 100))
@@ -276,7 +282,13 @@ function DashboardPage() {
               </Typography>
             </Box>
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 2 }}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr', xl: '1fr 1fr 1fr' },
+                gap: 2,
+              }}
+            >
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                   <Typography variant="body1" fontWeight={600}>
@@ -316,6 +328,36 @@ function DashboardPage() {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {inferTask?.lastError ? `最近错误：${inferTask.lastError}` : '最近错误：-'}
+                </Typography>
+              </Box>
+
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="body1" fontWeight={600}>
+                    重编码任务
+                  </Typography>
+                  <Chip
+                    size="small"
+                    label={formatReencodeTaskStatus(reencodeTask?.status)}
+                    color={reencodeTask?.status === 'processing' ? 'warning' : 'default'}
+                  />
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                  排队：{reencodeTask?.waitingCount ?? 0}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {reencodeTask?.current
+                    ? `当前文件：${reencodeTask.current.sourceFileKey}`
+                    : reencodeTask?.lastFinishedAt
+                      ? `最近完成：${new Date(reencodeTask.lastFinishedAt).toLocaleString()}`
+                      : '暂无重编码任务记录'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {reencodeTask?.lastOutputFileKey
+                    ? `最近输出：${reencodeTask.lastOutputFileKey}`
+                    : reencodeTask?.lastError
+                      ? `最近错误：${reencodeTask.lastError}`
+                      : '最近输出：-'}
                 </Typography>
               </Box>
             </Box>

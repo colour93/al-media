@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { bigint, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { bigint, boolean, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 import { videosTable } from "./Video";
 import { fileDirsTable } from "./FileDir";
 import { videoFileUniquesTable } from "./VideoFileUnique";
@@ -15,6 +15,11 @@ export const videoFilesTable = pgTable("video_files", {
   fileSize: bigint("file_size", { mode: "number" }).notNull(),
   fileModifiedAt: timestamp().notNull(),
   videoDuration: bigint("video_duration", { mode: "number" }).notNull(),
+  videoCodec: varchar("video_codec", { length: 64 }),
+  audioCodec: varchar("audio_codec", { length: 64 }),
+  mp4MoovAtomOffset: bigint("mp4_moov_atom_offset", { mode: "number" }),
+  mp4MdatAtomOffset: bigint("mp4_mdat_atom_offset", { mode: "number" }),
+  mp4MoovBeforeMdat: boolean("mp4_moov_before_mdat"),
   createdAt: timestamp().notNull().defaultNow(),
   updatedAt: timestamp().notNull().defaultNow(),
 });

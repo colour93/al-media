@@ -24,6 +24,12 @@ export type UpdateActorInput = {
   tags?: number[];
 };
 
+export type ActorDeleteImpact = {
+  videoRefs: number;
+  creatorRefs: number;
+  strategyRefs: number;
+};
+
 const ACTOR_SORT_KEYS = ["id", "name", "createdAt", "updatedAt"] as const;
 
 function toActorResponse(item: { actorTags: Array<{ tag: unknown }> } & Record<string, unknown>) {
@@ -312,17 +318,77 @@ class ActorsService {
     };
   }
 
-  async delete(id: number): Promise<{ item: unknown; hasRefs: boolean }> {
-    const refs = await db.query.videoActorsTable.findMany({
-      where: eq(videoActorsTable.actorId, id),
-      limit: 1,
+  async getDeleteImpact(id: number): Promise<ActorDeleteImpact> {
+    const [videoRefsCount, creatorRefsCount, strategyRows] = await Promise.all([
+      db.$count(videoActorsTable, eq(videoActorsTable.actorId, id)),
+      db.$count(creatorsTable, eq(creatorsTable.actorId, id)),
+      db.query.bindingStrategiesTable.findMany({
+        columns: { actorIds: true },
+      }),
+    ]);
+    const strategyRefs = strategyRows.reduce((count, row) => {
+      const actorIds = row.actorIds ?? [];
+      return actorIds.includes(id) ? count + 1 : count;
+    }, 0);
+    return {
+      videoRefs: Number(videoRefsCount ?? 0),
+      creatorRefs: Number(creatorRefsCount ?? 0),
+      strategyRefs,
+    };
+  }
+
+  async delete(
+    id: number,
+    options?: { force?: boolean }
+  ): Promise<{ item: unknown; notFound: boolean; blocked: boolean; impact: ActorDeleteImpact }> {
+    const existing = await db.query.actorsTable.findFirst({
+      where: eq(actorsTable.id, id),
+      columns: { id: true },
     });
-    if (refs.length > 0) {
-      return { item: null, hasRefs: true };
+    if (!existing) {
+      return {
+        item: null,
+        notFound: true,
+        blocked: false,
+        impact: { videoRefs: 0, creatorRefs: 0, strategyRefs: 0 },
+      };
     }
 
-    const rows = await db.delete(actorsTable).where(eq(actorsTable.id, id)).returning();
-    return { item: rows[0] ?? null, hasRefs: false };
+    const impact = await this.getDeleteImpact(id);
+    const hasRefs = impact.videoRefs > 0 || impact.creatorRefs > 0 || impact.strategyRefs > 0;
+    if (hasRefs && !options?.force) {
+      return { item: null, notFound: false, blocked: true, impact };
+    }
+
+    const item = await db.transaction(async (tx) => {
+      if (impact.videoRefs > 0) {
+        await tx.delete(videoActorsTable).where(eq(videoActorsTable.actorId, id));
+      }
+      if (impact.creatorRefs > 0) {
+        await tx
+          .update(creatorsTable)
+          .set({ actorId: null, updatedAt: new Date() })
+          .where(eq(creatorsTable.actorId, id));
+      }
+      if (impact.strategyRefs > 0) {
+        const strategies = await tx.query.bindingStrategiesTable.findMany({
+          columns: { id: true, actorIds: true },
+        });
+        for (const strategy of strategies) {
+          const actorIds = strategy.actorIds ?? [];
+          if (!actorIds.includes(id)) continue;
+          const nextActorIds = actorIds.filter((actorId) => actorId !== id);
+          await tx
+            .update(bindingStrategiesTable)
+            .set({ actorIds: nextActorIds, updatedAt: new Date() })
+            .where(eq(bindingStrategiesTable.id, strategy.id));
+        }
+      }
+      const rows = await tx.delete(actorsTable).where(eq(actorsTable.id, id)).returning();
+      return rows[0] ?? null;
+    });
+
+    return { item, notFound: false, blocked: false, impact };
   }
 }
 

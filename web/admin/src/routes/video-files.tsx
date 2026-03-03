@@ -19,6 +19,7 @@ import {
   Chip,
   Avatar,
   CircularProgress,
+  Alert,
 } from '@mui/material';
 import {
   Play,
@@ -36,6 +37,7 @@ import {
   Pencil,
   Trash2,
   BrainCircuit,
+  Repeat2,
 } from 'lucide-react';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { VideoPreviewDialog } from '../components/VideoPreviewDialog/VideoPreviewDialog';
@@ -52,6 +54,8 @@ import {
   useVideoFileIndexStrategyUpdate,
   useVideoFileIndexStrategyDelete,
   useApplyVideoFileIndexStrategy,
+  useVideoReencodeTask,
+  useEnqueueVideoReencodeTask,
 } from '../hooks/useVideoFiles';
 import {
   useVideoInsertFromFile,
@@ -170,13 +174,29 @@ function formatInferTaskStatus(status?: string): string {
   return '空闲';
 }
 
+function formatReencodeTaskStatus(status?: string): string {
+  if (status === 'processing') return '进行中';
+  return '空闲';
+}
+
+function getWebCompatibilityHint(file: VideoFile): string | null {
+  if (file.webCompatible !== false) return null;
+  const issues = file.webCompatibilityIssues ?? [];
+  if (issues.length > 0) {
+    return issues[0] ?? null;
+  }
+  return '该文件可能不能正常在 Web 端播放';
+}
+
 function FolderLazyView(props: {
   enabledFileDirs: FileDir[];
   selectedFileIds: Set<number>;
   onToggleFileSelect: (id: number) => void;
   onCreateVideo: (row: VideoFile) => void;
   onPreviewVideoFile: (videoFileId: number) => void;
+  onEnqueueReencode: (videoFileId: number) => void;
   createVideoLoading: boolean;
+  reencodeSubmitting: boolean;
 }) {
   const {
     enabledFileDirs,
@@ -184,7 +204,9 @@ function FolderLazyView(props: {
     onToggleFileSelect,
     onCreateVideo,
     onPreviewVideoFile,
+    onEnqueueReencode,
     createVideoLoading,
+    reencodeSubmitting,
   } = props;
 
   const rootNodes = useMemo<FolderNode[]>(
@@ -505,12 +527,24 @@ function FolderLazyView(props: {
                   <Typography variant="caption" color="text.secondary">
                     {formatDurationHuman(row.file.videoDuration)} · {formatSize(row.file.fileSize)}
                   </Typography>
+                  {!row.file.webCompatible && (
+                    <Chip size="small" color="warning" label="Web 兼容性风险" />
+                  )}
                   <Button
                     size="small"
                     startIcon={<Play size={14} />}
                     onClick={() => onPreviewVideoFile(row.file.id)}
                   >
                     预览
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<Repeat2 size={14} />}
+                    onClick={() => onEnqueueReencode(row.file.id)}
+                    disabled={reencodeSubmitting}
+                  >
+                    重编码
                   </Button>
                   {!row.file.video && (
                     <Button
@@ -568,6 +602,8 @@ function VideoFilesPage() {
   const { data, isLoading } = useVideoFilesList(page, pageSize, keyword, sortBy, sortOrder);
   const { data: fileDirsData } = useFileDirsList(1, 100, '');
   const { data: scanTask } = useVideoFileScanTask();
+  const { data: reencodeTask } = useVideoReencodeTask();
+  const enqueueReencodeMut = useEnqueueVideoReencodeTask();
   const { data: inferTask } = useVideoInferTask();
   const pauseInferTaskMut = usePauseVideoInferTask();
   const resumeInferTaskMut = useResumeVideoInferTask();
@@ -612,9 +648,14 @@ function VideoFilesPage() {
   const [indexStrategyFileDirId, setIndexStrategyFileDirId] = useState<number | 'all'>('all');
   const [indexStrategyRegex, setIndexStrategyRegex] = useState('');
   const [indexStrategyEnabled, setIndexStrategyEnabled] = useState(true);
+  const lastReencodeFinishedRef = useRef<string | null>(null);
 
   const items = useMemo(() => (data?.items ?? []) as VideoFile[], [data?.items]);
   const total = data?.total ?? 0;
+  const incompatibleCount = useMemo(
+    () => items.filter((item) => item.webCompatible === false).length,
+    [items]
+  );
   const fileDirs = useMemo(() => (fileDirsData?.items ?? []) as FileDir[], [fileDirsData?.items]);
   const enabledFileDirs = useMemo(() => fileDirs.filter((dir) => dir.enabled), [fileDirs]);
   const actors = useMemo(
@@ -648,6 +689,16 @@ function VideoFilesPage() {
   }, [enabledFileDirs, scanFileDirId]);
 
   const itemMap = useMemo(() => new Map(items.map((f) => [f.id, f])), [items]);
+
+  useEffect(() => {
+    const finishedAt = reencodeTask?.lastFinishedAt ?? null;
+    if (!finishedAt) return;
+    if (lastReencodeFinishedRef.current === finishedAt) return;
+    lastReencodeFinishedRef.current = finishedAt;
+    queryClient.invalidateQueries({ queryKey: ['videoFiles'] });
+    queryClient.invalidateQueries({ queryKey: ['videos'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  }, [queryClient, reencodeTask?.lastFinishedAt]);
 
   const toggleFileSelect = (id: number) => {
     setSelectedFileIds((prev) => {
@@ -749,6 +800,7 @@ function VideoFilesPage() {
   const inferTaskProcessing = inferTask?.status === 'processing';
   const inferTaskPaused = inferTask?.status === 'paused';
   const inferTaskMutating = pauseInferTaskMut.isPending || resumeInferTaskMut.isPending;
+  const reencodeTaskProcessing = reencodeTask?.status === 'processing';
 
   const handleStartScanTask = async (force: boolean) => {
     if (scanFileDirId === '') return;
@@ -801,6 +853,12 @@ function VideoFilesPage() {
 
   const handleApplyIndexStrategy = async (row: VideoFileIndexStrategy) => {
     await applyIndexStrategyMut.mutateAsync(row.id);
+  };
+
+  const handleEnqueueReencode = async (videoFileId: number) => {
+    await enqueueReencodeMut.mutateAsync(videoFileId);
+    queryClient.invalidateQueries({ queryKey: ['videoFiles'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
   const handleDeleteIndexStrategyConfirm = async () => {
@@ -877,6 +935,21 @@ function VideoFilesPage() {
       width: 100,
       render: (r) => formatSize(r.fileSize),
     },
+    {
+      id: 'webCompatible',
+      label: 'Web 兼容',
+      width: 160,
+      render: (r) =>
+        r.webCompatible === false ? (
+          <Chip
+            size="small"
+            color="warning"
+            label={getWebCompatibilityHint(r) ?? '可能无法播放'}
+          />
+        ) : (
+          <Chip size="small" color="success" label="兼容" />
+        ),
+    },
     { id: 'uniqueId', label: '唯一ID', render: (r) => r.uniqueId },
     {
       id: 'video',
@@ -909,6 +982,15 @@ function VideoFilesPage() {
         onClick={() => setPreviewVideoFileId(row.id)}
       >
         预览
+      </Button>
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={<Repeat2 size={14} />}
+        onClick={() => handleEnqueueReencode(row.id)}
+        disabled={enqueueReencodeMut.isPending}
+      >
+        重编码
       </Button>
       {!row.video && (
         <Button
@@ -964,6 +1046,11 @@ function VideoFilesPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         视频文件由目录扫描自动生成。可多选文件或整文件夹，批量设置标签、演员、创作者（无视频实体时会先新建）。
       </Typography>
+      {incompatibleCount > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          当前列表中有 {incompatibleCount} 个文件可能不适合 Web 直接播放，建议执行重编码。
+        </Alert>
+      )}
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
@@ -1099,6 +1186,39 @@ function VideoFilesPage() {
       </Paper>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1 }}>
+          <Box>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Repeat2 size={18} />
+              视频重编码任务
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              状态：{formatReencodeTaskStatus(reencodeTask?.status)}
+              {reencodeTask?.current?.sourceFileKey ? ` · 当前：${reencodeTask.current.sourceFileKey}` : ''}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Typography variant="body2" color="text.secondary">
+              排队：{reencodeTask?.waitingCount ?? 0}
+            </Typography>
+            <Chip
+              size="small"
+              color={reencodeTaskProcessing ? 'warning' : 'default'}
+              label={formatReencodeTaskStatus(reencodeTask?.status)}
+            />
+          </Box>
+        </Box>
+        <Typography variant="caption" color="text.secondary">
+          {reencodeTask?.current?.outputFileKey
+            ? `输出：${reencodeTask.current.outputFileKey}`
+            : reencodeTask?.lastOutputFileKey
+              ? `最近输出：${reencodeTask.lastOutputFileKey}`
+              : '可在文件行操作中点击“重编码”加入队列'}
+          {reencodeTask?.lastError ? ` · 最近错误：${reencodeTask.lastError}` : ''}
+        </Typography>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
           <Box>
             <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1195,7 +1315,9 @@ function VideoFilesPage() {
             onToggleFileSelect={toggleFileSelect}
             onCreateVideo={handleCreateVideo}
             onPreviewVideoFile={(videoFileId) => setPreviewVideoFileId(videoFileId)}
+            onEnqueueReencode={handleEnqueueReencode}
             createVideoLoading={insertMut.isPending}
+            reencodeSubmitting={enqueueReencodeMut.isPending}
           />
         </Box>
       ) : (

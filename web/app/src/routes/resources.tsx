@@ -1,6 +1,6 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Autocomplete,
   Box,
@@ -17,27 +17,31 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
-} from '@mui/material';
-import { Search } from 'lucide-react';
-import { ActorCard } from '../components/ActorCard/ActorCard';
-import { CreatorCard } from '../components/CreatorCard/CreatorCard';
-import { EntityPreview } from '../components/EntityPreview/EntityPreview';
-import { VideoCard } from '../components/VideoCard/VideoCard';
-import { useResourceSearch, useResourceTagOptions } from '../hooks/useResources';
-import type { ResourceCategory, SearchTag } from '../api/types';
+} from "@mui/material";
+import { Search } from "lucide-react";
+import { ActorCard } from "../components/ActorCard/ActorCard";
+import { CreatorCard } from "../components/CreatorCard/CreatorCard";
+import { EntityPreview } from "../components/EntityPreview/EntityPreview";
+import { VideoCard } from "../components/VideoCard/VideoCard";
+import {
+  useResourceSearch,
+  useResourceTagOptions,
+} from "../hooks/useResources";
+import type { ResourceCategory, SearchTag } from "../api/types";
+import { videoGridSx } from "../styles/sx";
 
 const CATEGORY_OPTIONS: { value: ResourceCategory; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'video', label: '视频' },
-  { value: 'actor', label: '演员' },
-  { value: 'creator', label: '创作者' },
-  { value: 'distributor', label: '发行方' },
-  { value: 'tag', label: '标签' },
+  { value: "all", label: "全部" },
+  { value: "video", label: "视频" },
+  { value: "actor", label: "演员" },
+  { value: "creator", label: "创作者" },
+  { value: "distributor", label: "发行方" },
+  { value: "tag", label: "标签" },
 ];
 
 function parseCategory(value: unknown): ResourceCategory {
   const found = CATEGORY_OPTIONS.find((opt) => opt.value === value);
-  return found?.value ?? 'all';
+  return found?.value ?? "all";
 }
 
 function dedupeTags(tags: SearchTag[]) {
@@ -48,12 +52,12 @@ function dedupeTags(tags: SearchTag[]) {
   return Array.from(map.values());
 }
 
-export const Route = createFileRoute('/resources')({
+export const Route = createFileRoute("/resources")({
   validateSearch: (s: Record<string, unknown>) => {
     const pageRaw = Number(s?.page);
     const pageSizeRaw = Number(s?.pageSize);
     return {
-      q: (s?.q as string) ?? '',
+      q: (s?.q as string) ?? "",
       category: parseCategory(s?.category),
       page: Number.isInteger(pageRaw) && pageRaw >= 1 ? pageRaw : 1,
       pageSize:
@@ -69,7 +73,7 @@ function ResourcesPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { q, category, page, pageSize } = Route.useSearch();
   const [searchInput, setSearchInput] = useState(q);
-  const [tagInput, setTagInput] = useState('');
+  const [tagInput, setTagInput] = useState("");
   const [includeTags, setIncludeTags] = useState<SearchTag[]>([]);
   const [excludeTags, setExcludeTags] = useState<SearchTag[]>([]);
 
@@ -80,7 +84,7 @@ function ResourcesPage() {
   const includeTagIds = includeTags.map((tag) => tag.id);
   const excludeTagIds = excludeTags.map((tag) => tag.id);
 
-  const queryPage = category === 'all' ? 1 : page;
+  const queryPage = category === "all" ? 1 : page;
   const { data, isLoading } = useResourceSearch({
     q: q || undefined,
     category,
@@ -92,15 +96,19 @@ function ResourcesPage() {
   const { data: tagOptionsData } = useResourceTagOptions(tagInput, 50);
 
   const tagOptions = useMemo(() => {
-    return dedupeTags([...(tagOptionsData?.items ?? []), ...includeTags, ...excludeTags]);
+    return dedupeTags([
+      ...(tagOptionsData?.items ?? []),
+      ...includeTags,
+      ...excludeTags,
+    ]);
   }, [tagOptionsData?.items, includeTags, excludeTags]);
 
   const handleSearch = () => {
-    navigate({ search: { q: searchInput || '', category, page: 1, pageSize } });
+    navigate({ search: { q: searchInput || "", category, page: 1, pageSize } });
   };
 
   const handleCategoryChange = (value: ResourceCategory) => {
-    navigate({ search: { q: q || '', category: value, page: 1, pageSize } });
+    navigate({ search: { q: q || "", category: value, page: 1, pageSize } });
   };
 
   const handleIncludeChange = (next: SearchTag[]) => {
@@ -110,7 +118,7 @@ function ResourcesPage() {
     setIncludeTags(nextInclude);
     setExcludeTags(nextExclude);
     if (page !== 1) {
-      navigate({ search: { q: q || '', category, page: 1, pageSize } });
+      navigate({ search: { q: q || "", category, page: 1, pageSize } });
     }
   };
 
@@ -121,7 +129,7 @@ function ResourcesPage() {
     setIncludeTags(nextInclude);
     setExcludeTags(nextExclude);
     if (page !== 1) {
-      navigate({ search: { q: q || '', category, page: 1, pageSize } });
+      navigate({ search: { q: q || "", category, page: 1, pageSize } });
     }
   };
 
@@ -132,15 +140,15 @@ function ResourcesPage() {
   const tagData = data?.tags;
 
   const currentData =
-    category === 'video'
+    category === "video"
       ? videoData
-      : category === 'actor'
+      : category === "actor"
         ? actorData
-        : category === 'creator'
+        : category === "creator"
           ? creatorData
-          : category === 'distributor'
+          : category === "distributor"
             ? distributorData
-            : category === 'tag'
+            : category === "tag"
               ? tagData
               : undefined;
 
@@ -154,14 +162,22 @@ function ResourcesPage() {
       </Typography>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1.5 }}>
+        <Box
+          sx={{
+            display: "flex",
+            gap: 1,
+            flexWrap: "wrap",
+            alignItems: "center",
+            mb: 1.5,
+          }}
+        >
           <TextField
             size="small"
             placeholder="综合搜索：标题 / fileKey / 演员 / 创作者 / 发行方 / 标签"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 handleSearch();
               }
             }}
@@ -172,12 +188,12 @@ function ResourcesPage() {
                 </InputAdornment>
               ),
             }}
-            sx={{ minWidth: { xs: '100%', sm: 360 }, flex: 1 }}
+            sx={{ minWidth: { xs: "100%", sm: 360 }, flex: 1 }}
           />
           <Button variant="contained" onClick={handleSearch}>
             搜索
           </Button>
-          {category !== 'all' ? (
+          {category !== "all" ? (
             <FormControl size="small" sx={{ minWidth: 100 }}>
               <InputLabel>每页</InputLabel>
               <Select
@@ -185,7 +201,12 @@ function ResourcesPage() {
                 label="每页"
                 onChange={(e) =>
                   navigate({
-                    search: { q: q || '', category, page: 1, pageSize: Number(e.target.value) },
+                    search: {
+                      q: q || "",
+                      category,
+                      page: 1,
+                      pageSize: Number(e.target.value),
+                    },
                   })
                 }
               >
@@ -205,7 +226,7 @@ function ResourcesPage() {
             onChange={(_, value) => {
               if (value) handleCategoryChange(value as ResourceCategory);
             }}
-            sx={{ flexWrap: 'wrap', gap: 0.5 }}
+            sx={{ flexWrap: "wrap", gap: 0.5 }}
           >
             {CATEGORY_OPTIONS.map((opt) => (
               <ToggleButton key={opt.value} value={opt.value}>
@@ -215,19 +236,32 @@ function ResourcesPage() {
           </ToggleButtonGroup>
         </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+            gap: 1.5,
+          }}
+        >
           <Autocomplete
             multiple
             options={tagOptions}
             value={includeTags}
             isOptionEqualToValue={(option, value) => option.id === value.id}
             getOptionLabel={(option) =>
-              option.tagType?.name ? `${option.tagType.name}: ${option.name}` : option.name
+              option.tagType?.name
+                ? `${option.tagType.name}: ${option.name}`
+                : option.name
             }
             onInputChange={(_, value) => setTagInput(value)}
             onChange={(_, value) => handleIncludeChange(value)}
             renderInput={(params) => (
-              <TextField {...params} size="small" label="标签白名单（保留）" placeholder="输入标签名搜索" />
+              <TextField
+                {...params}
+                size="small"
+                label="标签白名单（保留）"
+                placeholder="输入标签名搜索"
+              />
             )}
           />
           <Autocomplete
@@ -236,27 +270,34 @@ function ResourcesPage() {
             value={excludeTags}
             isOptionEqualToValue={(option, value) => option.id === value.id}
             getOptionLabel={(option) =>
-              option.tagType?.name ? `${option.tagType.name}: ${option.name}` : option.name
+              option.tagType?.name
+                ? `${option.tagType.name}: ${option.name}`
+                : option.name
             }
             onInputChange={(_, value) => setTagInput(value)}
             onChange={(_, value) => handleExcludeChange(value)}
             renderInput={(params) => (
-              <TextField {...params} size="small" label="标签黑名单（排除）" placeholder="输入标签名搜索" />
+              <TextField
+                {...params}
+                size="small"
+                label="标签黑名单（排除）"
+                placeholder="输入标签名搜索"
+              />
             )}
           />
         </Box>
       </Paper>
 
       {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress />
         </Box>
-      ) : category === 'all' ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      ) : category === "all" ? (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
           <CategorySection
             title="视频"
             total={videoData?.total ?? 0}
-            onViewAll={() => handleCategoryChange('video')}
+            onViewAll={() => handleCategoryChange("video")}
           >
             <VideoGrid items={videoData?.items ?? []} />
           </CategorySection>
@@ -264,7 +305,7 @@ function ResourcesPage() {
           <CategorySection
             title="演员"
             total={actorData?.total ?? 0}
-            onViewAll={() => handleCategoryChange('actor')}
+            onViewAll={() => handleCategoryChange("actor")}
           >
             <ActorGrid items={actorData?.items ?? []} />
           </CategorySection>
@@ -272,7 +313,7 @@ function ResourcesPage() {
           <CategorySection
             title="创作者"
             total={creatorData?.total ?? 0}
-            onViewAll={() => handleCategoryChange('creator')}
+            onViewAll={() => handleCategoryChange("creator")}
           >
             <CreatorGrid items={creatorData?.items ?? []} />
           </CategorySection>
@@ -280,7 +321,7 @@ function ResourcesPage() {
           <CategorySection
             title="发行方"
             total={distributorData?.total ?? 0}
-            onViewAll={() => handleCategoryChange('distributor')}
+            onViewAll={() => handleCategoryChange("distributor")}
           >
             <DistributorGrid items={distributorData?.items ?? []} />
           </CategorySection>
@@ -288,27 +329,35 @@ function ResourcesPage() {
           <CategorySection
             title="标签"
             total={tagData?.total ?? 0}
-            onViewAll={() => handleCategoryChange('tag')}
+            onViewAll={() => handleCategoryChange("tag")}
           >
             <TagGrid items={tagData?.items ?? []} />
           </CategorySection>
         </Box>
       ) : (
         <>
-          {category === 'video' ? <VideoGrid items={videoData?.items ?? []} /> : null}
-          {category === 'actor' ? <ActorGrid items={actorData?.items ?? []} /> : null}
-          {category === 'creator' ? <CreatorGrid items={creatorData?.items ?? []} /> : null}
-          {category === 'distributor' ? <DistributorGrid items={distributorData?.items ?? []} /> : null}
-          {category === 'tag' ? <TagGrid items={tagData?.items ?? []} /> : null}
+          {category === "video" ? (
+            <VideoGrid items={videoData?.items ?? []} />
+          ) : null}
+          {category === "actor" ? (
+            <ActorGrid items={actorData?.items ?? []} />
+          ) : null}
+          {category === "creator" ? (
+            <CreatorGrid items={creatorData?.items ?? []} />
+          ) : null}
+          {category === "distributor" ? (
+            <DistributorGrid items={distributorData?.items ?? []} />
+          ) : null}
+          {category === "tag" ? <TagGrid items={tagData?.items ?? []} /> : null}
 
           {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+            <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
               <Pagination
                 count={totalPages}
                 page={page}
                 onChange={(_, nextPage) =>
                   navigate({
-                    search: { q: q || '', category, page: nextPage, pageSize },
+                    search: { q: q || "", category, page: nextPage, pageSize },
                   })
                 }
                 color="primary"
@@ -334,7 +383,14 @@ function CategorySection({
 }) {
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 1.5,
+        }}
+      >
         <Typography variant="h6" fontWeight={600}>
           {title}
         </Typography>
@@ -347,24 +403,12 @@ function CategorySection({
   );
 }
 
-function VideoGrid({ items }: { items: import('../api/types').VideoDetail[] }) {
+function VideoGrid({ items }: { items: import("../api/types").VideoDetail[] }) {
   if (items.length === 0) {
     return <Typography color="text.secondary">暂无视频结果</Typography>;
   }
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: 'repeat(2, 1fr)',
-          sm: 'repeat(3, 1fr)',
-          md: 'repeat(4, 1fr)',
-          lg: 'repeat(5, 1fr)',
-          xl: 'repeat(6, 1fr)',
-        },
-        gap: 2,
-      }}
-    >
+    <Box sx={videoGridSx}>
       {items.map((item) => (
         <VideoCard key={item.id} video={item} />
       ))}
@@ -372,22 +416,12 @@ function VideoGrid({ items }: { items: import('../api/types').VideoDetail[] }) {
   );
 }
 
-function ActorGrid({ items }: { items: import('../api/types').SearchActor[] }) {
+function ActorGrid({ items }: { items: import("../api/types").SearchActor[] }) {
   if (items.length === 0) {
     return <Typography color="text.secondary">暂无演员结果</Typography>;
   }
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: 'repeat(2, 1fr)',
-          sm: 'repeat(3, 1fr)',
-          md: 'repeat(4, 1fr)',
-        },
-        gap: 2,
-      }}
-    >
+    <Box sx={videoGridSx}>
       {items.map((item) => (
         <ActorCard key={item.id} actor={item} />
       ))}
@@ -395,22 +429,16 @@ function ActorGrid({ items }: { items: import('../api/types').SearchActor[] }) {
   );
 }
 
-function CreatorGrid({ items }: { items: import('../api/types').SearchCreator[] }) {
+function CreatorGrid({
+  items,
+}: {
+  items: import("../api/types").SearchCreator[];
+}) {
   if (items.length === 0) {
     return <Typography color="text.secondary">暂无创作者结果</Typography>;
   }
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: 'repeat(2, 1fr)',
-          sm: 'repeat(3, 1fr)',
-          md: 'repeat(4, 1fr)',
-        },
-        gap: 2,
-      }}
-    >
+    <Box sx={videoGridSx}>
       {items.map((item) => (
         <CreatorCard key={item.id} creator={item} />
       ))}
@@ -418,22 +446,16 @@ function CreatorGrid({ items }: { items: import('../api/types').SearchCreator[] 
   );
 }
 
-function DistributorGrid({ items }: { items: import('../api/types').Distributor[] }) {
+function DistributorGrid({
+  items,
+}: {
+  items: import("../api/types").Distributor[];
+}) {
   if (items.length === 0) {
     return <Typography color="text.secondary">暂无发行方结果</Typography>;
   }
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: 'repeat(1, 1fr)',
-          sm: 'repeat(2, 1fr)',
-          md: 'repeat(3, 1fr)',
-        },
-        gap: 2,
-      }}
-    >
+    <Box sx={videoGridSx}>
       {items.map((item) => (
         <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
           <Typography fontWeight={600}>{item.name}</Typography>
@@ -446,12 +468,12 @@ function DistributorGrid({ items }: { items: import('../api/types').Distributor[
   );
 }
 
-function TagGrid({ items }: { items: import('../api/types').SearchTag[] }) {
+function TagGrid({ items }: { items: import("../api/types").SearchTag[] }) {
   if (items.length === 0) {
     return <Typography color="text.secondary">暂无标签结果</Typography>;
   }
   return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
       {items.map((item) => (
         <EntityPreview key={item.id} entityType="tag" entity={item} size="md" />
       ))}

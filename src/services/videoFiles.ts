@@ -3,6 +3,7 @@ import { db } from "../db";
 import { videoFilesTable } from "../entities/VideoFile";
 import { fileDirsTable } from "../entities/FileDir";
 import type { PaginatedResult } from "../utils/pagination";
+import { evaluateVideoWebCompatibility } from "../utils/videoWebCompatibility";
 
 const videoFileWithRelations = {
   fileDir: { columns: { id: true, path: true } },
@@ -38,10 +39,26 @@ function toVideoFileResponse(
   const videoObj = video as { thumbnailKey?: string | null } | null;
   const thumbnailKey =
     videoObj?.thumbnailKey ?? ((videoFile.uniqueId as string) ? `${(videoFile.uniqueId as string)}.jpg` : null);
-  return { ...videoFile, video, fileDir, thumbnailKey };
+  const compatibility = evaluateVideoWebCompatibility({
+    fileKey: typeof videoFile.fileKey === "string" ? videoFile.fileKey : null,
+    videoCodec: typeof videoFile.videoCodec === "string" ? videoFile.videoCodec : null,
+    audioCodec: typeof videoFile.audioCodec === "string" ? videoFile.audioCodec : null,
+    mp4MoovBeforeMdat:
+      typeof videoFile.mp4MoovBeforeMdat === "boolean" ? videoFile.mp4MoovBeforeMdat : null,
+  });
+  return { ...videoFile, ...compatibility, video, fileDir, thumbnailKey };
 }
 
+type FolderChildrenCacheValue = {
+  expiresAt: number;
+  value: { items: Array<{ fileDirId: number; path: string; name: string }>; nextCursor: string | null };
+};
+
+const FOLDER_CHILDREN_CACHE_TTL_MS = 15_000;
+
 class VideoFilesService {
+  private folderChildrenCache = new Map<string, FolderChildrenCacheValue>();
+
   private normalizeFolderPath(folderPath?: string): string {
     if (!folderPath) return "";
     return folderPath.trim().replace(/^[\\/]+/, "").replace(/[\\/]+$/, "");
@@ -123,6 +140,13 @@ class VideoFilesService {
     pageSize = 50
   ): Promise<{ items: Array<{ fileDirId: number; path: string; name: string }>; nextCursor: string | null }> {
     const normalizedPath = this.normalizeFolderPath(folderPath);
+    const cacheKey = `${fileDirId}|${normalizedPath}|${cursor ?? ""}|${pageSize}`;
+    const now = Date.now();
+    const cached = this.folderChildrenCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
     const prefix = normalizedPath ? `${normalizedPath}/` : "";
     const prefixLike = `${prefix}%`;
     const startPos = prefix.length + 1;
@@ -158,7 +182,12 @@ class VideoFilesService {
         path: normalizedPath ? `${normalizedPath}/${name}` : name,
       }));
     const nextCursor = hasMore ? items[items.length - 1]?.name ?? null : null;
-    return { items, nextCursor };
+    const value = { items, nextCursor };
+    this.folderChildrenCache.set(cacheKey, {
+      expiresAt: now + FOLDER_CHILDREN_CACHE_TTL_MS,
+      value,
+    });
+    return value;
   }
 
   async listFolderFiles(

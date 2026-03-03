@@ -1,18 +1,23 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Box,
   Typography,
   CircularProgress,
   Paper,
   Pagination,
-} from '@mui/material';
-import { getFileUrl } from '../api/file';
-import { VideoCard } from '../components/VideoCard/VideoCard';
-import { CreatorCard } from '../components/CreatorCard/CreatorCard';
-import { EntityPreview } from '../components/EntityPreview/EntityPreview';
-import { useActor, useActorCreators, useActorVideos } from '../hooks/useEntities';
+} from "@mui/material";
+import { getFileUrl } from "../api/file";
+import { VideoCard } from "../components/VideoCard/VideoCard";
+import { CreatorCard } from "../components/CreatorCard/CreatorCard";
+import { EntityPreview } from "../components/EntityPreview/EntityPreview";
+import {
+  useActor,
+  useActorCreators,
+  useActorVideos,
+} from "../hooks/useEntities";
+import { videoGridSx } from "../styles/sx";
 
-export const Route = createFileRoute('/actors/$id')({
+export const Route = createFileRoute("/actors/$id")({
   validateSearch: (s: Record<string, unknown>) => ({
     page: Number(s?.page) || 1,
   }),
@@ -26,12 +31,16 @@ function ActorDetailPage() {
   const actorId = Number(id);
   const pageSize = 12;
 
-  const { data: actor, isLoading } = useActor(Number.isInteger(actorId) ? actorId : null);
-  const { data: creators } = useActorCreators(Number.isInteger(actorId) ? actorId : null);
+  const { data: actor, isLoading } = useActor(
+    Number.isInteger(actorId) ? actorId : null,
+  );
+  const { data: creators } = useActorCreators(
+    Number.isInteger(actorId) ? actorId : null,
+  );
   const { data: videosData } = useActorVideos(
     Number.isInteger(actorId) ? actorId : null,
     page,
-    pageSize
+    pageSize,
   );
 
   const videos = videosData?.items ?? [];
@@ -48,7 +57,7 @@ function ActorDetailPage() {
 
   if (isLoading || !actor) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
         <CircularProgress />
       </Box>
     );
@@ -57,18 +66,18 @@ function ActorDetailPage() {
   return (
     <Box>
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
           {actor.avatarKey ? (
             <Box
               component="img"
-              src={getFileUrl('avatars', actor.avatarKey)}
+              src={getFileUrl("avatars", actor.avatarKey)}
               alt={actor.name}
               sx={{
                 width: 80,
                 height: 80,
-                borderRadius: '50%',
-                objectFit: 'cover',
-                bgcolor: 'action.selected',
+                borderRadius: "50%",
+                objectFit: "cover",
+                bgcolor: "action.selected",
               }}
             />
           ) : (
@@ -76,11 +85,11 @@ function ActorDetailPage() {
               sx={{
                 width: 80,
                 height: 80,
-                borderRadius: '50%',
-                bgcolor: 'action.selected',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                borderRadius: "50%",
+                bgcolor: "action.selected",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               <Typography variant="h4" color="text.secondary">
@@ -93,9 +102,14 @@ function ActorDetailPage() {
               {actor.name}
             </Typography>
             {actor.tags?.length ? (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 1 }}>
                 {actor.tags.map((t) => (
-                  <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />
+                  <EntityPreview
+                    key={t.id}
+                    entityType="tag"
+                    entity={t}
+                    size="sm"
+                  />
                 ))}
               </Box>
             ) : null}
@@ -107,20 +121,12 @@ function ActorDetailPage() {
           <Typography variant="h6" fontWeight={600} gutterBottom>
             关联创作者
           </Typography>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: 'repeat(2, 1fr)',
-                sm: 'repeat(3, 1fr)',
-                md: 'repeat(4, 1fr)',
-              },
-              gap: 2,
-              mb: 3,
-            }}
-          >
+          <Box sx={videoGridSx}>
             {creators!.map((c) => (
-              <CreatorCard key={c.id} creator={c as Parameters<typeof CreatorCard>[0]['creator']} />
+              <CreatorCard
+                key={c.id}
+                creator={c as Parameters<typeof CreatorCard>[0]["creator"]}
+              />
             ))}
           </Box>
         </>
@@ -128,23 +134,16 @@ function ActorDetailPage() {
       <Typography variant="h6" fontWeight={600} gutterBottom>
         相关视频
       </Typography>
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: 'repeat(2, 1fr)',
-            sm: 'repeat(3, 1fr)',
-            md: 'repeat(4, 1fr)',
-          },
-          gap: 2,
-        }}
-      >
+      <Box sx={videoGridSx}>
         {videos.map((v) => (
-          <VideoCard key={v.id} video={v as import('../api/types').VideoDetail} />
+          <VideoCard
+            key={v.id}
+            video={v as import("../api/types").VideoDetail}
+          />
         ))}
       </Box>
       {totalPages > 1 && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
           <Pagination
             count={totalPages}
             page={page}

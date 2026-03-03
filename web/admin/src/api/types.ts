@@ -90,6 +90,13 @@ export interface VideoFile {
   fileSize: number;
   fileModifiedAt: string;
   videoDuration: number;
+  videoCodec?: string | null;
+  audioCodec?: string | null;
+  mp4MoovAtomOffset?: number | null;
+  mp4MdatAtomOffset?: number | null;
+  mp4MoovBeforeMdat?: boolean | null;
+  webCompatible?: boolean;
+  webCompatibilityIssues?: string[];
   createdAt: string;
   updatedAt: string;
   video?: Video | null;
@@ -131,6 +138,21 @@ export interface VideoInferTask {
   lastError: string | null;
 }
 
+export interface VideoReencodeTask {
+  status: 'idle' | 'processing';
+  waitingCount: number;
+  current: {
+    videoFileId: number;
+    sourceFileKey: string;
+    outputFileKey: string | null;
+    startedAt: string;
+  } | null;
+  lastFinishedAt: string | null;
+  lastError: string | null;
+  lastOutputVideoFileId: number | null;
+  lastOutputFileKey: string | null;
+}
+
 export type VideoFileIndexStrategyMode = 'blacklist';
 
 export interface VideoFileIndexStrategy {
@@ -169,6 +191,11 @@ export interface Video {
   isBanner?: boolean;
   bannerOrder?: number | null;
   recommendedOrder?: number | null;
+  webCompatible?: boolean;
+  webCompatibilityIssues?: string[];
+  videoFileVideoCodec?: string | null;
+  videoFileAudioCodec?: string | null;
+  videoFileMp4MoovBeforeMdat?: boolean | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -199,4 +226,5 @@ export interface DashboardStats {
   };
   scanTask: VideoFileScanTask | null;
   inferTask: VideoInferTask;
+  reencodeTask: VideoReencodeTask;
 }

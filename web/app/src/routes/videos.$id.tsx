@@ -7,6 +7,7 @@ import {
   Paper,
   Button,
   Divider,
+  Alert,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { Clock3, Heart } from 'lucide-react';
@@ -207,6 +208,12 @@ function VideoDetailPage() {
             <Typography variant="body2" color="text.secondary" gutterBottom>
               {metaParts}
             </Typography>
+          )}
+          {video.webCompatible === false && (
+            <Alert severity="warning" sx={{ mt: 1, mb: 1 }}>
+              当前文件可能无法在浏览器中稳定播放：
+              {(video.webCompatibilityIssues ?? []).join('；') || '建议使用兼容格式重新编码。'}
+            </Alert>
           )}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1 }}>
             <Button

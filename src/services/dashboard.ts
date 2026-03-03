@@ -6,6 +6,7 @@ import { videoFilesTable } from "../entities/VideoFile";
 import { videosTable } from "../entities/Video";
 import { videoFileManager } from "./videoFileManager";
 import { videosService } from "./videos";
+import { videoReencodeManager } from "./videoReencodeManager";
 
 export type DashboardTimeUnit = "day" | "week" | "month";
 
@@ -33,6 +34,7 @@ export type DashboardStatsSnapshot = {
   };
   scanTask: ReturnType<typeof videoFileManager.getScanTaskSnapshot>;
   inferTask: ReturnType<typeof videosService.getInferTaskSnapshot>;
+  reencodeTask: ReturnType<typeof videoReencodeManager.getTaskSnapshot>;
 };
 
 const DASHBOARD_UNIT_SPAN_DEFAULT: Record<DashboardTimeUnit, number> = {
@@ -223,9 +225,9 @@ class DashboardService {
       },
       scanTask: videoFileManager.getScanTaskSnapshot(),
       inferTask: videosService.getInferTaskSnapshot(),
+      reencodeTask: videoReencodeManager.getTaskSnapshot(),
     };
   }
 }
 
 export const dashboardService = new DashboardService();
-

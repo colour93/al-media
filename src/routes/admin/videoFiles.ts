@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { videoFilesService } from "../../services/videoFiles";
 import { videoFileManager } from "../../services/videoFileManager";
 import { videoFileIndexStrategiesService } from "../../services/videoFileIndexStrategies";
+import { videoReencodeManager } from "../../services/videoReencodeManager";
 import {
   MAX_PAGE_SIZE,
   paginationQuerySchema,
@@ -93,6 +94,23 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
     }
   )
   .get("/scan-task", () => videoFileManager.getScanTaskSnapshot())
+  .get("/reencode-task", () => videoReencodeManager.getTaskSnapshot())
+  .post(
+    "/reencode",
+    async ({ body, set }) => {
+      const result = await videoReencodeManager.enqueue(body.videoFileId);
+      if ("error" in result) {
+        set.status = 400;
+        return { message: result.error };
+      }
+      return result;
+    },
+    {
+      body: t.Object({
+        videoFileId: t.Integer(),
+      }),
+    }
+  )
   .post(
     "/scan/start",
     async ({ body, set }) => {

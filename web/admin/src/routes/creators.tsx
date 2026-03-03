@@ -13,6 +13,7 @@ import {
   useCreator,
   useCreatorMerge,
 } from '../hooks/useCreators';
+import { fetchCreatorDeleteImpact, type CreatorDeleteImpact } from '../api/creators';
 import { useActor, useActorCreate, useActorsList } from '../hooks/useActors';
 import { useTagsList } from '../hooks/useTags';
 import { fetchActorsList, searchActors } from '../api/actors';
@@ -53,6 +54,10 @@ function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
   return Array.from(map.values());
 }
 
+type DeleteTarget = Creator & {
+  deleteImpact: CreatorDeleteImpact;
+};
+
 function CreatorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { page, pageSize, keyword, sortBy, sortOrder, editId } = Route.useSearch();
@@ -75,7 +80,8 @@ function CreatorsPage() {
   }, [keyword]);
 
   const [formOpen, setFormOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<Creator | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleteLoadingId, setDeleteLoadingId] = useState<number | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [selectedCreatorIds, setSelectedCreatorIds] = useState<Set<number>>(new Set());
   const [mergeTargetId, setMergeTargetId] = useState<number | ''>('');
@@ -231,8 +237,21 @@ function CreatorsPage() {
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
-    await deleteMut.mutateAsync(deleteTarget.id);
+    await deleteMut.mutateAsync({
+      id: deleteTarget.id,
+      force: deleteTarget.deleteImpact.hasRefs,
+    });
     setDeleteTarget(null);
+  };
+
+  const handleDeleteRequest = async (row: Creator) => {
+    setDeleteLoadingId(row.id);
+    try {
+      const impact = await fetchCreatorDeleteImpact(row.id);
+      setDeleteTarget({ ...row, deleteImpact: impact });
+    } finally {
+      setDeleteLoadingId(null);
+    }
   };
 
   const toggleCreatorSelect = (id: number) => {
@@ -356,7 +375,8 @@ function CreatorsPage() {
               size="small"
               color="error"
               startIcon={<Trash2 size={14} />}
-              onClick={() => setDeleteTarget(row)}
+              onClick={() => void handleDeleteRequest(row)}
+              disabled={deleteLoadingId === row.id || deleteMut.isPending}
             >
               删除
             </Button>
@@ -502,7 +522,13 @@ function CreatorsPage() {
 
       <DeleteConfirm
         open={!!deleteTarget}
-        message={deleteTarget ? `确定要删除“${deleteTarget.name}”吗？` : ''}
+        message={
+          deleteTarget
+            ? deleteTarget.deleteImpact.hasRefs
+              ? `创作者“${deleteTarget.name}”仍有关联：视频 ${deleteTarget.deleteImpact.videoRefs}、策略 ${deleteTarget.deleteImpact.strategyRefs}。继续删除会移除视频里的该创作者，并从策略中移除该创作者。确认继续吗？`
+              : `确定要删除“${deleteTarget.name}”吗？`
+            : ''
+        }
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDeleteConfirm}
         loading={deleteMut.isPending}

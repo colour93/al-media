@@ -10,6 +10,12 @@ import {
 
 const normalizeTagIds = (ids: number[]) => [...new Set(ids)];
 
+function parseForceFlag(raw?: string): boolean {
+  if (!raw) return false;
+  const val = raw.trim().toLowerCase();
+  return val === "1" || val === "true" || val === "yes";
+}
+
 const creatorPlatformUnion = t.Union([
   t.Literal("onlyfans"),
   t.Literal("justforfans"),
@@ -107,6 +113,27 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
         return { message: "创作者不存在" };
       }
       return item;
+    },
+    { params: t.Object({ id: t.String() }) }
+  )
+  .get(
+    "/:id/delete-impact",
+    async ({ params, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      const creator = await creatorsService.findById(id);
+      if (!creator) {
+        set.status = 404;
+        return { message: "创作者不存在" };
+      }
+      const impact = await creatorsService.getDeleteImpact(id);
+      return {
+        ...impact,
+        hasRefs: impact.videoRefs > 0 || impact.strategyRefs > 0,
+      };
     },
     { params: t.Object({ id: t.String() }) }
   )
@@ -245,22 +272,31 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
   )
   .delete(
     "/:id",
-    async ({ params, set }) => {
+    async ({ params, query, set }) => {
       const id = Number(params.id);
       if (!Number.isInteger(id)) {
         set.status = 400;
         return { message: "ID 无效" };
       }
-      const { item, hasRefs } = await creatorsService.delete(id);
-      if (hasRefs) {
+      const force = parseForceFlag(query.force);
+      const result = await creatorsService.delete(id, { force });
+      if (result.blocked) {
         set.status = 409;
-        return { message: "创作者被视频引用，无法删除" };
+        return {
+          message: "创作者存在关联，继续删除将清理关联引用",
+          ...result.impact,
+          hasRefs: true,
+          canForce: true,
+        };
       }
-      if (!item) {
+      if (result.notFound || !result.item) {
         set.status = 404;
         return { message: "创作者不存在" };
       }
-      return item;
+      return result.item;
     },
-    { params: t.Object({ id: t.String() }) }
+    {
+      params: t.Object({ id: t.String() }),
+      query: t.Object({ force: t.Optional(t.String()) }),
+    }
   );

@@ -41,6 +41,11 @@ export interface Video {
   id: number;
   title: string;
   thumbnailKey: string | null;
+  webCompatible?: boolean;
+  webCompatibilityIssues?: string[];
+  videoFileVideoCodec?: string | null;
+  videoFileAudioCodec?: string | null;
+  videoFileMp4MoovBeforeMdat?: boolean | null;
   createdAt: string;
   updatedAt: string;
 }

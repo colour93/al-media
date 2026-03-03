@@ -47,7 +47,9 @@
 - `src/utils/file.ts`
   - `getFileUniqueId`：头/25%/50%/75%/尾分块 + 文件大小 hash
 - `src/services/ffmpegManager.ts`
-  - `ffprobe` 获取时长、`ffmpeg` 生成缩略图
+  - `ffprobe` 获取时长/音视频编码、`ffmpeg` 生成缩略图与重编码
+- `src/services/videoReencodeManager.ts`
+  - 串行重编码队列（状态快照、排队、自动关联原视频）
 - `src/services/fileDirs.ts`
   - 目录增删改后触发 `videoFileManager.init()` 重新挂载监听
 
@@ -108,6 +110,7 @@
 - `src/services/ffmpegManager.ts`
 - `src/services/fileDirs.ts`
 - 管理端页面：`web/admin/src/routes/file-dirs.tsx`、`web/admin/src/routes/video-files.tsx`
+  - 重编码任务状态与触发入口：`web/admin/src/routes/video-files.tsx`、`web/admin/src/routes/index.tsx`
 
 ### 2) 调整“从文件名提取元数据（LLM）”
 - `src/services/videos.ts`（`inferVideoInfo`、`reExtractVideoInfo`）

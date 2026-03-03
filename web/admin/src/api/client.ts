@@ -119,8 +119,8 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
   return handleResponse<T>(res);
 }
 
-export async function del<T>(path: string): Promise<T> {
-  const res = await fetch(buildUrl(path), {
+export async function del<T>(path: string, params?: RequestParams): Promise<T> {
+  const res = await fetch(buildUrl(path, params), {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
     ...fetchOpts,

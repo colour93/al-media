@@ -5,7 +5,7 @@ import {
   fetchCreator,
   createCreator,
   updateCreator,
-  deleteCreator,
+  deleteCreatorWithOptions,
   mergeCreators,
 } from '../api/creators';
 import type { CreatorType, CreatorPlatform } from '../api/types';
@@ -95,9 +95,16 @@ export function useCreatorDelete() {
   const { showError, showMessage } = useSnackbar();
 
   return useMutation({
-    mutationFn: (id: number) => deleteCreator(id),
+    mutationFn: (input: number | { id: number; force?: boolean }) => {
+      if (typeof input === 'number') {
+        return deleteCreatorWithOptions(input);
+      }
+      return deleteCreatorWithOptions(input.id, { force: input.force });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['creators'] });
+      qc.invalidateQueries({ queryKey: ['videos'] });
+      qc.invalidateQueries({ queryKey: ['bindingStrategies'] });
       showMessage('删除成功');
     },
     onError: (err: Error) => showError(err?.message ?? '删除失败'),

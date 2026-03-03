@@ -15,6 +15,7 @@ import {
   Chip,
   FormControlLabel,
   Switch,
+  Alert,
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Play, Tags, Sparkles } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
@@ -537,6 +538,12 @@ function VideosPage() {
                     helperText="用于手动提取创作者、演员等信息时的参考"
                     size="small"
                   />
+                )}
+                {editing && videoDetail?.webCompatible === false && (
+                  <Alert severity="warning">
+                    该视频关联文件可能不适合 Web 播放：
+                    {(videoDetail.webCompatibilityIssues ?? []).join('；') || '请考虑重编码。'}
+                  </Alert>
                 )}
                 {editing && (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
