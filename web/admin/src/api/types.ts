@@ -41,6 +41,7 @@ export interface BindingStrategy {
   tagIds: number[];
   creatorIds: number[];
   actorIds: number[];
+  distributorIds: number[];
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -80,6 +81,7 @@ export interface Distributor {
   domain: string | null;
   createdAt: string;
   updatedAt: string;
+  tags?: Tag[];
 }
 
 export interface VideoFile {
@@ -97,6 +99,7 @@ export interface VideoFile {
   mp4MoovBeforeMdat?: boolean | null;
   webCompatible?: boolean;
   webCompatibilityIssues?: string[];
+  webCompatibilityHint?: string | null;
   createdAt: string;
   updatedAt: string;
   video?: Video | null;
@@ -193,6 +196,7 @@ export interface Video {
   recommendedOrder?: number | null;
   webCompatible?: boolean;
   webCompatibilityIssues?: string[];
+  webCompatibilityHint?: string | null;
   videoFileVideoCodec?: string | null;
   videoFileAudioCodec?: string | null;
   videoFileMp4MoovBeforeMdat?: boolean | null;

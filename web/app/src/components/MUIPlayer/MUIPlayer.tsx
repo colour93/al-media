@@ -39,7 +39,8 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
     if (!player) return;
     const stateWidth = Number(player.state.mediaWidth);
     const stateHeight = Number(player.state.mediaHeight);
-    const media = player.querySelector('video') as HTMLVideoElement | null;
+    const playerElement = player as unknown as HTMLElement;
+    const media = playerElement.querySelector('video') as HTMLVideoElement | null;
     const width = stateWidth > 0 ? stateWidth : (media?.videoWidth ?? 0);
     const height = stateHeight > 0 ? stateHeight : (media?.videoHeight ?? 0);
     if (!(width > 0 && height > 0)) return;
@@ -110,6 +111,8 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
         }}
       >
         <MediaPlayer
+          playsInline
+          fullscreenOrientation="none"
           onLoadStart={handleLoadStart}
           onCanPlay={handleCanPlay}
           onLoadedMetadata={syncVideoOrientation}
@@ -120,7 +123,7 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
           data-portrait-video={isPortraitVideo ? 'true' : undefined}
         >
           <MediaProvider />
-          <DefaultVideoLayout icons={defaultLayoutIcons} />
+          <DefaultVideoLayout icons={defaultLayoutIcons} noScrubGesture noGestures />
         </MediaPlayer>
       </Box>
     </Paper>

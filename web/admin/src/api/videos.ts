@@ -129,9 +129,11 @@ export async function resumeVideoInferTask(): Promise<VideoInferTask> {
 
 export async function captureThumbnail(
   id: number,
-  seekSec?: number
+  seekSec?: number,
+  options?: { replaceExisting?: boolean }
 ): Promise<{ thumbnailKey: string }> {
   return post<{ thumbnailKey: string }>(`${BASE}/${id}/capture-thumbnail`, {
     seekSec,
+    replaceExisting: options?.replaceExisting,
   });
 }

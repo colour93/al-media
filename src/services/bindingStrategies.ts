@@ -11,6 +11,7 @@ import { videosService } from "./videos";
 import { tagsService } from "./tags";
 import { actorsService } from "./actors";
 import { creatorsService } from "./creators";
+import { distributorsService } from "./distributors";
 import { fileDirsService } from "./fileDirs";
 import type { PaginatedResult } from "../utils/pagination";
 
@@ -22,6 +23,7 @@ export type CreateBindingStrategyInput = {
   tagIds?: number[];
   creatorIds?: number[];
   actorIds?: number[];
+  distributorIds?: number[];
   enabled?: boolean;
 };
 
@@ -33,6 +35,7 @@ export type UpdateBindingStrategyInput = {
   tagIds?: number[];
   creatorIds?: number[];
   actorIds?: number[];
+  distributorIds?: number[];
   enabled?: boolean;
 };
 
@@ -118,6 +121,7 @@ class BindingStrategiesService {
     const tagIds = [...new Set(data.tagIds ?? [])];
     const creatorIds = [...new Set(data.creatorIds ?? [])];
     const actorIds = [...new Set(data.actorIds ?? [])];
+    const distributorIds = [...new Set(data.distributorIds ?? [])];
 
     if (tagIds.length > 0) {
       const ok = await tagsService.idsExist(tagIds);
@@ -131,6 +135,10 @@ class BindingStrategiesService {
       const ok = await actorsService.idsExist(actorIds);
       if (!ok) return { error: "部分 actorIds 不存在" as const };
     }
+    if (distributorIds.length > 0) {
+      const ok = await distributorsService.idsExist(distributorIds);
+      if (!ok) return { error: "部分 distributorIds 不存在" as const };
+    }
 
     const insertData: NewBindingStrategy = {
       type: data.type,
@@ -140,6 +148,7 @@ class BindingStrategiesService {
       tagIds,
       creatorIds,
       actorIds,
+      distributorIds,
       enabled: data.enabled ?? true,
     };
 
@@ -170,6 +179,8 @@ class BindingStrategiesService {
     const tagIds = data.tagIds !== undefined ? [...new Set(data.tagIds)] : undefined;
     const creatorIds = data.creatorIds !== undefined ? [...new Set(data.creatorIds)] : undefined;
     const actorIds = data.actorIds !== undefined ? [...new Set(data.actorIds)] : undefined;
+    const distributorIds =
+      data.distributorIds !== undefined ? [...new Set(data.distributorIds)] : undefined;
 
     if (tagIds && tagIds.length > 0) {
       const ok = await tagsService.idsExist(tagIds);
@@ -183,15 +194,20 @@ class BindingStrategiesService {
       const ok = await actorsService.idsExist(actorIds);
       if (!ok) return { error: "部分 actorIds 不存在" as const };
     }
+    if (distributorIds && distributorIds.length > 0) {
+      const ok = await distributorsService.idsExist(distributorIds);
+      if (!ok) return { error: "部分 distributorIds 不存在" as const };
+    }
 
     const updateFields: Partial<NewBindingStrategy> = {
       type: data.type ?? undefined,
       fileDirId: data.fileDirId ?? undefined,
       folderPath: data.folderPath !== undefined ? data.folderPath : undefined,
       filenameRegex: data.filenameRegex !== undefined ? data.filenameRegex : undefined,
-      tagIds: data.tagIds !== undefined ? data.tagIds : undefined,
-      creatorIds: data.creatorIds !== undefined ? data.creatorIds : undefined,
-      actorIds: data.actorIds !== undefined ? data.actorIds : undefined,
+      tagIds,
+      creatorIds,
+      actorIds,
+      distributorIds,
       enabled: data.enabled ?? undefined,
     };
     const filtered = Object.fromEntries(
@@ -249,8 +265,14 @@ class BindingStrategiesService {
     const tagIds = strategy.tagIds ?? [];
     const creatorIds = strategy.creatorIds ?? [];
     const actorIds = strategy.actorIds ?? [];
+    const distributorIds = strategy.distributorIds ?? [];
 
-    if (tagIds.length === 0 && creatorIds.length === 0 && actorIds.length === 0) {
+    if (
+      tagIds.length === 0 &&
+      creatorIds.length === 0 &&
+      actorIds.length === 0 &&
+      distributorIds.length === 0
+    ) {
       return { applied: videoIds.length, videoIds };
     }
 
@@ -265,6 +287,10 @@ class BindingStrategiesService {
     }
     if (actorIds.length > 0) {
       const { added } = await videosService.batchAddActors(videoIds, actorIds);
+      totalAdded += added;
+    }
+    if (distributorIds.length > 0) {
+      const { added } = await videosService.batchAddDistributors(videoIds, distributorIds);
       totalAdded += added;
     }
 
@@ -323,9 +349,13 @@ class BindingStrategiesService {
       const tagIds = s.tagIds ?? [];
       const creatorIds = s.creatorIds ?? [];
       const actorIds = s.actorIds ?? [];
+      const distributorIds = s.distributorIds ?? [];
       if (tagIds.length > 0) await videosService.batchAddTags([videoId], tagIds);
       if (creatorIds.length > 0) await videosService.batchAddCreators([videoId], creatorIds);
       if (actorIds.length > 0) await videosService.batchAddActors([videoId], actorIds);
+      if (distributorIds.length > 0) {
+        await videosService.batchAddDistributors([videoId], distributorIds);
+      }
     }
   }
 }

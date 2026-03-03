@@ -11,14 +11,27 @@ import type {
 } from './types';
 
 const BASE = '/video-files';
+export type VideoFileWebCompatibilityFilter = 'all' | 'compatible' | 'incompatible';
+export type VideoFileHasVideoFilter = 'all' | 'bound' | 'unbound';
+export type VideoFileListFilters = {
+  webCompatibility?: VideoFileWebCompatibilityFilter;
+  hasVideo?: VideoFileHasVideoFilter;
+  fileDirId?: number;
+};
 
 export async function fetchVideoFilesList(
   page: number,
   pageSize: number,
+  filters: VideoFileListFilters = {},
   sortBy?: string,
   sortOrder?: 'asc' | 'desc'
 ): Promise<PaginatedResult<VideoFile>> {
   const params: Record<string, string | number> = { page, pageSize };
+  const webCompatibility = filters.webCompatibility ?? 'all';
+  const hasVideo = filters.hasVideo ?? 'all';
+  if (webCompatibility !== 'all') params.webCompatibility = webCompatibility;
+  if (hasVideo !== 'all') params.hasVideo = hasVideo;
+  if (typeof filters.fileDirId === 'number') params.fileDirId = filters.fileDirId;
   if (sortBy) params.sortBy = sortBy;
   if (sortOrder) params.sortOrder = sortOrder;
   return get<PaginatedResult<VideoFile>>(BASE, params);
@@ -28,10 +41,16 @@ export async function searchVideoFiles(
   keyword: string,
   page: number,
   pageSize: number,
+  filters: VideoFileListFilters = {},
   sortBy?: string,
   sortOrder?: 'asc' | 'desc'
 ): Promise<PaginatedResult<VideoFile>> {
   const params: Record<string, string | number> = { q: keyword, page, pageSize };
+  const webCompatibility = filters.webCompatibility ?? 'all';
+  const hasVideo = filters.hasVideo ?? 'all';
+  if (webCompatibility !== 'all') params.webCompatibility = webCompatibility;
+  if (hasVideo !== 'all') params.hasVideo = hasVideo;
+  if (typeof filters.fileDirId === 'number') params.fileDirId = filters.fileDirId;
   if (sortBy) params.sortBy = sortBy;
   if (sortOrder) params.sortOrder = sortOrder;
   return get<PaginatedResult<VideoFile>>(`${BASE}/search`, params);

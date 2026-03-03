@@ -281,7 +281,9 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         set.status = 400;
         return { message: "ID 无效" };
       }
-      const result = await videosService.captureThumbnail(id, body.seekSec);
+      const result = await videosService.captureThumbnail(id, body.seekSec, {
+        replaceExisting: body.replaceExisting,
+      });
       if ("error" in result) {
         set.status = 400;
         return { message: result.error };
@@ -290,7 +292,10 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
     },
     {
       params: t.Object({ id: t.String() }),
-      body: t.Object({ seekSec: t.Optional(t.Number()) }),
+      body: t.Object({
+        seekSec: t.Optional(t.Number()),
+        replaceExisting: t.Optional(t.Boolean()),
+      }),
     }
   )
   .post(

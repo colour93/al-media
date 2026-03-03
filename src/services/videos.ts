@@ -507,7 +507,14 @@ class VideosService {
     sortBy?: string,
     sortOrder?: "asc" | "desc"
   ): Promise<PaginatedResult<unknown>> {
-    const condition = ilike(videosTable.title, `%${keyword}%`);
+    const keywordTrimmed = keyword.trim();
+    const numericKeyword = keywordTrimmed.startsWith("#")
+      ? keywordTrimmed.slice(1)
+      : keywordTrimmed;
+    const condition =
+      /^\d+$/.test(numericKeyword) && Number.isSafeInteger(Number(numericKeyword)) && Number(numericKeyword) > 0
+        ? eq(videosTable.id, Number(numericKeyword))
+        : ilike(videosTable.title, `%${keywordTrimmed}%`);
     const orderByFn = buildVideoOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videosTable.findMany({
@@ -710,10 +717,34 @@ class VideosService {
     return { added };
   }
 
+  async batchAddDistributors(videoIds: number[], distributorIds: number[]): Promise<{ added: number }> {
+    if (videoIds.length === 0 || distributorIds.length === 0) return { added: 0 };
+    const allDistributorsExist = await distributorsService.idsExist(distributorIds);
+    if (!allDistributorsExist) return { added: 0 };
+    let added = 0;
+    await db.transaction(async (tx) => {
+      for (const videoId of videoIds) {
+        const existing = await tx
+          .select({ distributorId: videoDistributorsTable.distributorId })
+          .from(videoDistributorsTable)
+          .where(eq(videoDistributorsTable.videoId, videoId));
+        const existingDistributorIds = new Set(existing.map((r) => r.distributorId));
+        for (const distributorId of distributorIds) {
+          if (!existingDistributorIds.has(distributorId)) {
+            await tx.insert(videoDistributorsTable).values({ videoId, distributorId });
+            added++;
+          }
+        }
+      }
+    });
+    return { added };
+  }
+
   /** 从关联视频文件截取缩略图，默认取视频时长 30% 位置，返回新 thumbnailKey */
   async captureThumbnail(
     videoId: number,
-    seekSec?: number
+    seekSec?: number,
+    options?: { replaceExisting?: boolean }
   ): Promise<{ thumbnailKey: string } | { error: string }> {
     const content = await db.query.videoUniqueContentsTable.findFirst({
       where: eq(videoUniqueContentsTable.videoId, videoId),
@@ -727,12 +758,20 @@ class VideosService {
     if (!videoFile) return { error: "视频文件记录不存在" };
     const path = await videoFileManager.getVideoFilePath(videoFile.id);
     if (!path) return { error: "无法获取视频文件路径" };
+    const thumbnailKey = `${content.uniqueId}.jpg`;
+    const replaceExisting = options?.replaceExisting ?? false;
+    if (!replaceExisting && fileManager.exists(thumbnailKey, FileCategory.Thumbnails)) {
+      await db
+        .update(videosTable)
+        .set({ thumbnailKey, updatedAt: new Date() })
+        .where(eq(videosTable.id, videoId));
+      return { thumbnailKey };
+    }
     const durationSecRaw = Number(videoFile.videoDuration);
     const durationSec =
       Number.isFinite(durationSecRaw) && durationSecRaw > 0 ? durationSecRaw : undefined;
     const thumbBuf = await ffmpegManager.generateThumbnail(path, { seekSec, durationSec });
     if (!thumbBuf) return { error: "缩略图截取失败" };
-    const thumbnailKey = `${content.uniqueId}.jpg`;
     await fileManager.write(thumbnailKey, FileCategory.Thumbnails, thumbBuf);
     await db
       .update(videosTable)

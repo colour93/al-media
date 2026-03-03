@@ -8,7 +8,7 @@ import { FormDialog } from '../components/FormDialog/FormDialog';
 import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
 import { useTagTypesList, useTagType, useTagTypeCreate, useTagTypeUpdate, useTagTypeDelete } from '../hooks/useTagTypes';
 import { IconPicker } from '../components/IconPicker/IconPicker';
-import { getLucideIcon } from '../utils/lucideIcons';
+import { renderLucideIcon } from '../utils/lucideIcons';
 import { validateListSearch } from '../schemas/listSearch';
 import type { TagType } from '../api/types';
 import { TextField } from '@mui/material';
@@ -93,8 +93,8 @@ function TagTypesPage() {
       label: '图标',
       width: 60,
       render: (r) => {
-        const Icon = getLucideIcon(r.icon);
-        return Icon ? <Icon size={20} strokeWidth={1.5} /> : '-';
+        const iconEl = renderLucideIcon(r.icon ?? null, { size: 20 });
+        return iconEl ?? '-';
       },
     },
   ];

@@ -65,6 +65,9 @@ export interface DataTableProps<T> {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   onSortChange?: (sortBy: string, sortOrder: 'asc' | 'desc') => void;
+  columnFilters?: Partial<Record<string, React.ReactNode>>;
+  actionsFilter?: React.ReactNode;
+  headerFilterRow?: React.ReactNode;
 }
 
 export function DataTable<T extends { id?: number }>({
@@ -87,6 +90,9 @@ export function DataTable<T extends { id?: number }>({
   sortBy,
   sortOrder,
   onSortChange,
+  columnFilters,
+  actionsFilter,
+  headerFilterRow,
 }: DataTableProps<T>) {
   const [internalSearch, setInternalSearch] = useState('');
   const searchInput = searchValue !== undefined ? searchValue : internalSearch;
@@ -139,6 +145,8 @@ export function DataTable<T extends { id?: number }>({
 
   const resizeRef = useRef<{ colId: string; startX: number; startW: number } | null>(null);
   const [resizeActive, setResizeActive] = useState(false);
+  const headerRowRef = useRef<HTMLTableRowElement | null>(null);
+  const [headerRowHeight, setHeaderRowHeight] = useState(0);
 
   const handleResizeStart = useCallback(
     (colId: string, e: React.MouseEvent) => {
@@ -182,6 +190,24 @@ export function DataTable<T extends { id?: number }>({
   useEffect(() => {
     onSearchRef.current = onSearch;
   }, [onSearch]);
+
+  useEffect(() => {
+    const measure = () => {
+      const next = headerRowRef.current?.getBoundingClientRect().height ?? 0;
+      if (next > 0) setHeaderRowHeight(next);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+    };
+  }, [columns, sortBy, sortOrder]);
+
+  const hasColumnFilters = useMemo(() => {
+    if (actionsFilter) return true;
+    if (!columnFilters) return false;
+    return columns.some((col) => Boolean(columnFilters[col.id]));
+  }, [actionsFilter, columnFilters, columns]);
 
   useEffect(() => {
     if (!onSearchRef.current) return;
@@ -229,7 +255,7 @@ export function DataTable<T extends { id?: number }>({
       <TableContainer sx={{ maxHeight: 'calc(100vh - 280px)' }}>
         <Table stickyHeader size="small" sx={{ tableLayout: 'fixed' }}>
           <TableHead>
-            <TableRow>
+            <TableRow ref={headerRowRef}>
               {columns.map((col) => {
                 const sortKey = col.sortKey ?? col.id;
                 const isSortable = col.sortable && onSortChange;
@@ -246,6 +272,7 @@ export function DataTable<T extends { id?: number }>({
                       maxWidth: w,
                       position: 'relative',
                       pr: 0.5,
+                      top: 0,
                     }}
                     sortDirection={isSortable && isActive ? sortOrder : false}
                   >
@@ -292,8 +319,64 @@ export function DataTable<T extends { id?: number }>({
                   </TableCell>
                 );
               })}
-              {actions && <TableCell align="right" sx={{ width: 220, minWidth: 220 }}>操作</TableCell>}
+              {actions && (
+                <TableCell align="right" sx={{ width: 220, minWidth: 220, top: 0 }}>
+                  操作
+                </TableCell>
+              )}
             </TableRow>
+            {hasColumnFilters && (
+              <TableRow>
+                {columns.map((col) => {
+                  const w = effectiveColumnWidths[col.id] ?? parseWidth(col.width);
+                  return (
+                    <TableCell
+                      key={`${col.id}__filter`}
+                      align={col.align ?? 'left'}
+                      sx={{
+                        width: w,
+                        minWidth: w,
+                        maxWidth: w,
+                        py: 1,
+                        top: headerRowHeight || 0,
+                        bgcolor: 'background.paper',
+                      }}
+                    >
+                      {columnFilters?.[col.id]}
+                    </TableCell>
+                  );
+                })}
+                {actions && (
+                  <TableCell
+                    align="right"
+                    sx={{
+                      width: 220,
+                      minWidth: 220,
+                      py: 1,
+                      top: headerRowHeight || 0,
+                      bgcolor: 'background.paper',
+                    }}
+                  >
+                    {actionsFilter}
+                  </TableCell>
+                )}
+              </TableRow>
+            )}
+            {!hasColumnFilters && headerFilterRow && (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length + (actions ? 1 : 0)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    top: headerRowHeight || 0,
+                    bgcolor: 'background.paper',
+                  }}
+                >
+                  {headerFilterRow}
+                </TableCell>
+              </TableRow>
+            )}
           </TableHead>
           <TableBody>
             {loading ? (
@@ -371,3 +454,4 @@ export function DataTable<T extends { id?: number }>({
     </Paper>
   );
 }
+

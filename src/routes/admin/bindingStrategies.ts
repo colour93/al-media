@@ -15,6 +15,7 @@ const createBodySchema = t.Object({
   tagIds: t.Optional(t.Array(t.Number())),
   creatorIds: t.Optional(t.Array(t.Number())),
   actorIds: t.Optional(t.Array(t.Number())),
+  distributorIds: t.Optional(t.Array(t.Number())),
   enabled: t.Optional(t.Boolean()),
 });
 
@@ -26,6 +27,7 @@ const updateBodySchema = t.Object({
   tagIds: t.Optional(t.Array(t.Number())),
   creatorIds: t.Optional(t.Array(t.Number())),
   actorIds: t.Optional(t.Array(t.Number())),
+  distributorIds: t.Optional(t.Array(t.Number())),
   enabled: t.Optional(t.Boolean()),
 });
 
@@ -73,6 +75,7 @@ export const bindingStrategiesRoutes = new Elysia({ prefix: "/binding-strategies
         tagIds: body.tagIds,
         creatorIds: body.creatorIds,
         actorIds: body.actorIds,
+        distributorIds: body.distributorIds,
         enabled: body.enabled,
       });
       if ("error" in result) {
@@ -100,6 +103,7 @@ export const bindingStrategiesRoutes = new Elysia({ prefix: "/binding-strategies
         tagIds: body.tagIds,
         creatorIds: body.creatorIds,
         actorIds: body.actorIds,
+        distributorIds: body.distributorIds,
         enabled: body.enabled,
       });
       if ("error" in result) {

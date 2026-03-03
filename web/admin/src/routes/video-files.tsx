@@ -88,6 +88,8 @@ import {
   fetchVideoFile,
   fetchVideoFileFolderChildren,
   fetchVideoFilesByFolder,
+  type VideoFileHasVideoFilter,
+  type VideoFileWebCompatibilityFilter,
 } from '../api/videoFiles';
 
 function formatSize(bytes: number): string {
@@ -181,6 +183,9 @@ function formatReencodeTaskStatus(status?: string): string {
 
 function getWebCompatibilityHint(file: VideoFile): string | null {
   if (file.webCompatible !== false) return null;
+  if (file.webCompatibilityHint) {
+    return file.webCompatibilityHint;
+  }
   const issues = file.webCompatibilityIssues ?? [];
   if (issues.length > 0) {
     return issues[0] ?? null;
@@ -188,11 +193,38 @@ function getWebCompatibilityHint(file: VideoFile): string | null {
   return '该文件可能不能正常在 Web 端播放';
 }
 
+function validateVideoFilesSearch(
+  search: Record<string, unknown>
+): ReturnType<typeof validateListSearch> & {
+  webCompatibility: VideoFileWebCompatibilityFilter;
+  hasVideo: VideoFileHasVideoFilter;
+  fileDirId?: number;
+} {
+  const base = validateListSearch(search);
+  const rawCompatibility = search?.webCompatibility;
+  const rawHasVideo = search?.hasVideo;
+  const rawFileDirId = search?.fileDirId;
+  const webCompatibility: VideoFileWebCompatibilityFilter =
+    rawCompatibility === 'compatible' || rawCompatibility === 'incompatible' ? rawCompatibility : 'all';
+  const hasVideo: VideoFileHasVideoFilter =
+    rawHasVideo === 'bound' || rawHasVideo === 'unbound' ? rawHasVideo : 'all';
+  const parsedFileDirId =
+    typeof rawFileDirId === 'number'
+      ? rawFileDirId
+      : typeof rawFileDirId === 'string'
+        ? Number(rawFileDirId)
+        : NaN;
+  const fileDirId =
+    Number.isInteger(parsedFileDirId) && parsedFileDirId >= 1 ? parsedFileDirId : undefined;
+  return { ...base, webCompatibility, hasVideo, fileDirId };
+}
+
 function FolderLazyView(props: {
   enabledFileDirs: FileDir[];
   selectedFileIds: Set<number>;
   onToggleFileSelect: (id: number) => void;
   onCreateVideo: (row: VideoFile) => void;
+  onGoToVideoEdit: (videoId: number) => void;
   onPreviewVideoFile: (videoFileId: number) => void;
   onEnqueueReencode: (videoFileId: number) => void;
   createVideoLoading: boolean;
@@ -203,6 +235,7 @@ function FolderLazyView(props: {
     selectedFileIds,
     onToggleFileSelect,
     onCreateVideo,
+    onGoToVideoEdit,
     onPreviewVideoFile,
     onEnqueueReencode,
     createVideoLoading,
@@ -546,7 +579,16 @@ function FolderLazyView(props: {
                   >
                     重编码
                   </Button>
-                  {!row.file.video && (
+                  {row.file.video ? (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<Pencil size={14} />}
+                      onClick={() => onGoToVideoEdit(row.file.video!.id)}
+                    >
+                      编辑视频
+                    </Button>
+                  ) : (
                     <Button
                       size="small"
                       variant="outlined"
@@ -590,16 +632,23 @@ function FolderLazyView(props: {
 }
 
 export const Route = createFileRoute('/video-files')({
-  validateSearch: validateListSearch,
+  validateSearch: validateVideoFilesSearch,
   component: VideoFilesPage,
 });
 
 function VideoFilesPage() {
   const navigate = useNavigate({ from: Route.fullPath });
-  const { page, pageSize, keyword, sortBy, sortOrder } = Route.useSearch();
+  const { page, pageSize, keyword, sortBy, sortOrder, webCompatibility, hasVideo, fileDirId } = Route.useSearch();
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useVideoFilesList(page, pageSize, keyword, sortBy, sortOrder);
+  const { data, isLoading } = useVideoFilesList(
+    page,
+    pageSize,
+    keyword,
+    { webCompatibility, hasVideo, fileDirId },
+    sortBy,
+    sortOrder
+  );
   const { data: fileDirsData } = useFileDirsList(1, 100, '');
   const { data: scanTask } = useVideoFileScanTask();
   const { data: reencodeTask } = useVideoReencodeTask();
@@ -922,7 +971,7 @@ function VideoFilesPage() {
           </Box>
         ),
     },
-    { id: 'fileKey', label: '文件', render: (r) => r.fileKey, sortable: true, sortKey: 'fileKey' },
+    { id: 'fileKey', label: '文件', width: 280, render: (r) => r.fileKey, sortable: true, sortKey: 'fileKey' },
     {
       id: 'duration',
       label: '时长',
@@ -954,24 +1003,35 @@ function VideoFilesPage() {
     {
       id: 'video',
       label: '关联视频',
-      width: 120,
+      width: 180,
       render: (r) =>
         r.video ? (
-          <EntityPreview entityType="video" entity={r.video} inline />
+          <Button
+            size="small"
+            variant="text"
+            sx={{ p: 0, minWidth: 0, textTransform: 'none', justifyContent: 'flex-start' }}
+            onClick={() => handleGoToVideoEdit(r.video!.id)}
+          >
+            <EntityPreview entityType="video" entity={r.video} inline />
+          </Button>
         ) : (
           '-'
         ),
     },
   ];
 
+  const handleGoToVideoEdit = (videoId: number) => {
+    navigate({
+      to: '/videos',
+      search: { page: 1, pageSize: 10, keyword: '', editId: videoId },
+    });
+  };
+
   const handleCreateVideo = async (row: VideoFile) => {
     const video = await insertMut.mutateAsync({
       videoFileId: row.id,
     });
-    navigate({
-      to: '/videos',
-      search: { page: 1, pageSize: 10, keyword: '', editId: video.id },
-    });
+    handleGoToVideoEdit(video.id);
   };
 
   const actionsColumn = (row: VideoFile) => (
@@ -992,7 +1052,16 @@ function VideoFilesPage() {
       >
         重编码
       </Button>
-      {!row.video && (
+      {row.video ? (
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<Pencil size={14} />}
+          onClick={() => handleGoToVideoEdit(row.video!.id)}
+        >
+          编辑视频
+        </Button>
+      ) : (
         <Button
           size="small"
           variant="outlined"
@@ -1314,6 +1383,7 @@ function VideoFilesPage() {
             selectedFileIds={selectedFileIds}
             onToggleFileSelect={toggleFileSelect}
             onCreateVideo={handleCreateVideo}
+            onGoToVideoEdit={handleGoToVideoEdit}
             onPreviewVideoFile={(videoFileId) => setPreviewVideoFileId(videoFileId)}
             onEnqueueReencode={handleEnqueueReencode}
             createVideoLoading={insertMut.isPending}
@@ -1333,7 +1403,7 @@ function VideoFilesPage() {
             navigate({ search: (prev) => ({ ...prev, pageSize: ps, page: 1 }) })
           }
           loading={isLoading}
-          searchPlaceholder="搜索文件…"
+          searchPlaceholder="搜索文件 / 唯一ID / 目录 / ID（如 123、#123）…"
           searchValue={searchDraft}
           onSearchChange={setSearchDraft}
           onSearch={(k) => navigate({ search: (prev) => ({ ...prev, keyword: k, page: 1 }) })}
@@ -1341,6 +1411,95 @@ function VideoFilesPage() {
           sortOrder={sortOrder}
           onSortChange={(by, order) =>
             navigate({ search: (prev) => ({ ...prev, sortBy: by, sortOrder: order, page: 1 }) })
+          }
+          columnFilters={{
+            fileKey: (
+              <TextField
+                select
+                size="small"
+                label="目录"
+                value={fileDirId ?? ''}
+                onChange={(e) =>
+                  navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      fileDirId: e.target.value === '' ? undefined : Number(e.target.value),
+                      page: 1,
+                    }),
+                  })
+                }
+                fullWidth
+              >
+                <MenuItem value="">全部目录</MenuItem>
+                {fileDirs.map((dir) => (
+                  <MenuItem key={dir.id} value={dir.id}>
+                    {dir.path}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ),
+            video: (
+              <TextField
+                select
+                size="small"
+                label="关联状态"
+                value={hasVideo}
+                onChange={(e) =>
+                  navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      hasVideo: e.target.value as VideoFileHasVideoFilter,
+                      page: 1,
+                    }),
+                  })
+                }
+                fullWidth
+              >
+                <MenuItem value="all">全部</MenuItem>
+                <MenuItem value="bound">已关联视频</MenuItem>
+                <MenuItem value="unbound">未关联视频</MenuItem>
+              </TextField>
+            ),
+            webCompatible: (
+              <TextField
+                select
+                size="small"
+                label="Web 兼容性"
+                value={webCompatibility}
+                onChange={(e) =>
+                  navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      webCompatibility: e.target.value as VideoFileWebCompatibilityFilter,
+                      page: 1,
+                    }),
+                  })
+                }
+                fullWidth
+              >
+                <MenuItem value="all">全部文件</MenuItem>
+                <MenuItem value="incompatible">仅兼容性风险</MenuItem>
+                <MenuItem value="compatible">仅兼容文件</MenuItem>
+              </TextField>
+            ),
+          }}
+          actionsFilter={
+            <Button
+              size="small"
+              onClick={() =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    webCompatibility: 'all',
+                    hasVideo: 'all',
+                    fileDirId: undefined,
+                    page: 1,
+                  }),
+                })
+              }
+            >
+              重置筛选
+            </Button>
           }
           actions={actionsColumn}
           emptyMessage="暂无视频文件"

@@ -72,10 +72,16 @@ class CreatorsService {
         orderBy: orderByFn as Parameters<typeof db.query.creatorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
+        with: creatorWithRelations,
       }),
       db.$count(creatorsTable),
     ]);
-    return { page, pageSize, total: total ?? 0, items };
+    return {
+      page,
+      pageSize,
+      total: total ?? 0,
+      items: (items as Parameters<typeof toCreatorResponse>[0][]).map((it) => toCreatorResponse(it)),
+    };
   }
 
   async searchPaginated(
@@ -94,10 +100,16 @@ class CreatorsService {
         orderBy: orderByFn as Parameters<typeof db.query.creatorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
+        with: creatorWithRelations,
       }),
       db.$count(creatorsTable, condition),
     ]);
-    return { page, pageSize, total: total ?? 0, items };
+    return {
+      page,
+      pageSize,
+      total: total ?? 0,
+      items: (items as Parameters<typeof toCreatorResponse>[0][]).map((it) => toCreatorResponse(it)),
+    };
   }
 
   async findById(id: number) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import {
@@ -16,6 +16,7 @@ import {
   FormControlLabel,
   Switch,
   Alert,
+  Tooltip,
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Play, Tags, Sparkles } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
@@ -69,6 +70,53 @@ function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
     map.set(item.id, item);
   }
   return Array.from(map.values());
+}
+
+function TwoLineTitleCell({ title }: { title: string }) {
+  const titleRef = useRef<HTMLSpanElement | null>(null);
+  const [overflowed, setOverflowed] = useState(false);
+
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    const checkOverflow = () => {
+      const isOverflowed = el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1;
+      setOverflowed(isOverflowed);
+    };
+
+    checkOverflow();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(checkOverflow);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [title]);
+
+  const content = (
+    <Typography
+      component="span"
+      ref={titleRef}
+      variant="body2"
+      sx={{
+        display: '-webkit-box',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+        lineHeight: 1.4,
+        maxHeight: '2.8em',
+        wordBreak: 'break-word',
+      }}
+    >
+      {title}
+    </Typography>
+  );
+
+  if (!overflowed) return content;
+  return (
+    <Tooltip title={title} arrow placement="top-start">
+      {content}
+    </Tooltip>
+  );
 }
 
 function VideosPage() {
@@ -328,7 +376,13 @@ function VideosPage() {
           '-'
         ),
     },
-    { id: 'title', label: '标题', render: (r) => r.title, sortable: true, sortKey: 'title' },
+    {
+      id: 'title',
+      label: '标题',
+      render: (r) => <TwoLineTitleCell title={r.title} />,
+      sortable: true,
+      sortKey: 'title',
+    },
     {
       id: 'isFeatured',
       label: '推荐',
@@ -439,7 +493,7 @@ function VideosPage() {
           navigate({ search: (prev) => ({ ...prev, pageSize: ps, page: 1 }) })
         }
         loading={isLoading}
-        searchPlaceholder="搜索视频…"
+        searchPlaceholder="搜索视频标题 / 精确 ID（如 123、#123）…"
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
         onSearch={(k) => navigate({ search: (prev) => ({ ...prev, keyword: k, page: 1 }) })}

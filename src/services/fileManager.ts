@@ -54,6 +54,10 @@ export class FileManager {
   async write(key: string, category: FileCategory, data: Buffer | string): Promise<void> {
     this.ensureCategoryDir(category);
     const path = this.resolve(key, category);
+    if (typeof data === "string") {
+      await writeFile(path, data, { encoding: "utf8" });
+      return;
+    }
     await writeFile(path, data);
   }
 

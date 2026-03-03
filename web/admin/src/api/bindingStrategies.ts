@@ -12,6 +12,7 @@ export type CreateBindingStrategyInput = {
   tagIds?: number[];
   creatorIds?: number[];
   actorIds?: number[];
+  distributorIds?: number[];
   enabled?: boolean;
 };
 
@@ -23,6 +24,7 @@ export type UpdateBindingStrategyInput = {
   tagIds?: number[];
   creatorIds?: number[];
   actorIds?: number[];
+  distributorIds?: number[];
   enabled?: boolean;
 };
 

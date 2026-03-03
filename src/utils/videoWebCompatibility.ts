@@ -8,6 +8,7 @@ export type VideoWebCompatibilityInput = {
 export type VideoWebCompatibilityResult = {
   webCompatible: boolean;
   webCompatibilityIssues: string[];
+  webCompatibilityHint: string | null;
 };
 
 const WEB_FRIENDLY_CONTAINERS = new Set(["mp4", "m4v", "webm"]);
@@ -58,6 +59,7 @@ export function evaluateVideoWebCompatibility(
     return {
       webCompatible: true,
       webCompatibilityIssues: [],
+      webCompatibilityHint: null,
     };
   }
 
@@ -88,5 +90,6 @@ export function evaluateVideoWebCompatibility(
   return {
     webCompatible: issues.length === 0,
     webCompatibilityIssues: issues,
+    webCompatibilityHint: issues[0] ?? null,
   };
 }

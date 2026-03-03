@@ -17,14 +17,24 @@ import {
   stopVideoFileScanTask,
   updateVideoFileIndexStrategy,
   fetchVideoFile,
+  type VideoFileListFilters,
+  type VideoFileWebCompatibilityFilter,
   type CreateVideoFileIndexStrategyInput,
   type UpdateVideoFileIndexStrategyInput,
 } from '../api/videoFiles';
 import { useSnackbar } from './useSnackbar';
 
 const KEYS = {
-  list: (page: number, pageSize: number, keyword: string, sortBy?: string, sortOrder?: 'asc' | 'desc') =>
-    ['videoFiles', 'list', page, pageSize, keyword, sortBy, sortOrder] as const,
+  list: (
+    page: number,
+    pageSize: number,
+    keyword: string,
+    webCompatibility: VideoFileWebCompatibilityFilter,
+    hasVideo: 'all' | 'bound' | 'unbound',
+    fileDirId: number | null,
+    sortBy?: string,
+    sortOrder?: 'asc' | 'desc'
+  ) => ['videoFiles', 'list', page, pageSize, keyword, webCompatibility, hasVideo, fileDirId, sortBy, sortOrder] as const,
   detail: (id: number) => ['videoFiles', 'detail', id] as const,
   scanTask: () => ['videoFiles', 'scanTask'] as const,
   reencodeTask: () => ['videoFiles', 'reencodeTask'] as const,
@@ -42,15 +52,19 @@ export function useVideoFilesList(
   page: number,
   pageSize: number,
   keyword: string,
+  filters: VideoFileListFilters,
   sortBy?: string,
   sortOrder?: 'asc' | 'desc'
 ) {
+  const webCompatibility = filters.webCompatibility ?? 'all';
+  const hasVideo = filters.hasVideo ?? 'all';
+  const fileDirId = filters.fileDirId ?? null;
   return useQuery({
-    queryKey: KEYS.list(page, pageSize, keyword, sortBy, sortOrder),
+    queryKey: KEYS.list(page, pageSize, keyword, webCompatibility, hasVideo, fileDirId, sortBy, sortOrder),
     queryFn: () =>
       keyword.trim()
-        ? searchVideoFiles(keyword.trim(), page, pageSize, sortBy, sortOrder)
-        : fetchVideoFilesList(page, pageSize, sortBy, sortOrder),
+        ? searchVideoFiles(keyword.trim(), page, pageSize, filters, sortBy, sortOrder)
+        : fetchVideoFilesList(page, pageSize, filters, sortBy, sortOrder),
   });
 }
 

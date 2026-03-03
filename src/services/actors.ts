@@ -64,10 +64,16 @@ class ActorsService {
         orderBy: orderByFn as Parameters<typeof db.query.actorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
+        with: actorWithTags,
       }),
       db.$count(actorsTable),
     ]);
-    return { page, pageSize, total: total ?? 0, items };
+    return {
+      page,
+      pageSize,
+      total: total ?? 0,
+      items: (items as Parameters<typeof toActorResponse>[0][]).map((it) => toActorResponse(it)),
+    };
   }
 
   async searchPaginated(
@@ -86,10 +92,16 @@ class ActorsService {
         orderBy: orderByFn as Parameters<typeof db.query.actorsTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
+        with: actorWithTags,
       }),
       db.$count(actorsTable, condition),
     ]);
-    return { page, pageSize, total: total ?? 0, items };
+    return {
+      page,
+      pageSize,
+      total: total ?? 0,
+      items: (items as Parameters<typeof toActorResponse>[0][]).map((it) => toActorResponse(it)),
+    };
   }
 
   async findById(id: number) {

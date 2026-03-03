@@ -12,6 +12,37 @@ import {
 } from "../../utils/pagination";
 
 const indexStrategyModeSchema = t.Union([t.Literal("blacklist")]);
+const webCompatibilityFilterSchema = t.Union([
+  t.Literal("all"),
+  t.Literal("compatible"),
+  t.Literal("incompatible"),
+]);
+const hasVideoFilterSchema = t.Union([
+  t.Literal("all"),
+  t.Literal("bound"),
+  t.Literal("unbound"),
+]);
+
+function parseWebCompatibilityFilter(raw?: string): "all" | "compatible" | "incompatible" {
+  if (raw === "compatible" || raw === "incompatible" || raw === "all") {
+    return raw;
+  }
+  return "all";
+}
+
+function parseHasVideoFilter(raw?: string): "all" | "bound" | "unbound" {
+  if (raw === "bound" || raw === "unbound" || raw === "all") {
+    return raw;
+  }
+  return "all";
+}
+
+function parseFileDirIdFilter(raw?: string): number | null | undefined {
+  if (raw == null || raw === "") return undefined;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) return null;
+  return parsed;
+}
 
 export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
   .get(
@@ -19,31 +50,68 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
     async ({ query, set }) => {
       const pagination = parsePagination(query, set);
       if (!pagination) return { message: "分页参数无效" };
+      const webCompatibility = parseWebCompatibilityFilter(query.webCompatibility);
+      const hasVideo = parseHasVideoFilter(query.hasVideo);
+      const fileDirId = parseFileDirIdFilter(query.fileDirId);
+      if (fileDirId === null) {
+        set.status = 400;
+        return { message: "fileDirId 无效" };
+      }
       return videoFilesService.findManyPaginated(
         pagination.page,
         pagination.pageSize,
         pagination.offset,
         pagination.sortBy,
-        pagination.sortOrder
+        pagination.sortOrder,
+        { webCompatibility, hasVideo, fileDirId }
       );
     },
-    { query: paginationQuerySchema }
+    {
+      query: t.Object({
+        page: t.String({ default: "1" }),
+        pageSize: t.String({ default: "10" }),
+        sortBy: t.Optional(t.String()),
+        sortOrder: t.Optional(t.Union([t.Literal("asc"), t.Literal("desc")])),
+        webCompatibility: t.Optional(webCompatibilityFilterSchema),
+        hasVideo: t.Optional(hasVideoFilterSchema),
+        fileDirId: t.Optional(t.String()),
+      }),
+    }
   )
   .get(
     "/search",
     async ({ query, set }) => {
       const parsed = parseSearchQuery(query, set);
       if (!parsed) return { message: "搜索参数无效" };
+      const webCompatibility = parseWebCompatibilityFilter(query.webCompatibility);
+      const hasVideo = parseHasVideoFilter(query.hasVideo);
+      const fileDirId = parseFileDirIdFilter(query.fileDirId);
+      if (fileDirId === null) {
+        set.status = 400;
+        return { message: "fileDirId 无效" };
+      }
       return videoFilesService.searchPaginated(
         parsed.keyword,
         parsed.page,
         parsed.pageSize,
         parsed.offset,
         parsed.sortBy,
-        parsed.sortOrder
+        parsed.sortOrder,
+        { webCompatibility, hasVideo, fileDirId }
       );
     },
-    { query: searchQuerySchema }
+    {
+      query: t.Object({
+        q: t.String({ minLength: 1 }),
+        page: t.String({ default: "1" }),
+        pageSize: t.String({ default: "10" }),
+        sortBy: t.Optional(t.String()),
+        sortOrder: t.Optional(t.Union([t.Literal("asc"), t.Literal("desc")])),
+        webCompatibility: t.Optional(webCompatibilityFilterSchema),
+        hasVideo: t.Optional(hasVideoFilterSchema),
+        fileDirId: t.Optional(t.String()),
+      }),
+    }
   )
   .get(
     "/folders/children",

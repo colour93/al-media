@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Box, Typography, TextField, InputAdornment } from '@mui/material';
-import { DynamicIcon, iconNames, type IconName } from 'lucide-react/dynamic';
-import { LUCIDE_ICON_OPTIONS } from '../../utils/lucideIcons';
+import { iconNames } from 'lucide-react/dynamic';
+import { LUCIDE_ICON_OPTIONS, renderLucideIcon } from '../../utils/lucideIcons';
 
 export interface IconPickerProps {
   value: string | null;
@@ -9,9 +9,10 @@ export interface IconPickerProps {
 }
 
 const iconNamesSet = new Set<string>(iconNames);
+const presetIconNamesSet = new Set<string>(LUCIDE_ICON_OPTIONS.map((item) => item.name));
 
-function isValidIconName(name: string): name is IconName {
-  return iconNamesSet.has(name);
+function isValidIconName(name: string): boolean {
+  return iconNamesSet.has(name) || presetIconNamesSet.has(name);
 }
 
 export function IconPicker({ value, onChange }: IconPickerProps) {
@@ -45,6 +46,7 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
 
   const displayValue = value ?? inputValue;
   const isValid = displayValue ? isValidIconName(displayValue) : true;
+  const previewIcon = displayValue && isValid ? renderLucideIcon(displayValue, { size: 20 }) : null;
 
   return (
     <Box>
@@ -62,9 +64,9 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
         fullWidth
         sx={{ mb: 1.5 }}
         InputProps={{
-          startAdornment: displayValue && isValid ? (
+          startAdornment: previewIcon ? (
             <InputAdornment position="start">
-              <DynamicIcon name={displayValue as IconName} size={20} />
+              {previewIcon}
             </InputAdornment>
           ) : null,
         }}

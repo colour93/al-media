@@ -2,6 +2,9 @@ import { eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { distributorsTable } from "../entities/Distributor";
 import { videoDistributorsTable } from "../entities/VideoDistributor";
+import { bindingStrategiesTable } from "../entities/BindingStrategy";
+import { videoTagsTable } from "../entities/VideoTag";
+import { tagsTable } from "../entities/Tag";
 import type { PaginatedResult } from "../utils/pagination";
 
 export type CreateDistributorInput = {
@@ -15,6 +18,50 @@ export type UpdateDistributorInput = {
 };
 
 class DistributorsService {
+  private async getDistributorTagsMap(distributorIds: number[]) {
+    const map = new Map<number, unknown[]>();
+    const uniqueIds = [...new Set(distributorIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (uniqueIds.length === 0) return map;
+
+    const refs = await db
+      .select({
+        distributorId: videoDistributorsTable.distributorId,
+        tagId: videoTagsTable.tagId,
+      })
+      .from(videoDistributorsTable)
+      .innerJoin(videoTagsTable, eq(videoTagsTable.videoId, videoDistributorsTable.videoId))
+      .where(inArray(videoDistributorsTable.distributorId, uniqueIds));
+
+    const tagIds = [...new Set(refs.map((row) => row.tagId))];
+    if (tagIds.length === 0) return map;
+
+    const tags = await db.query.tagsTable.findMany({
+      where: inArray(tagsTable.id, tagIds),
+      with: { tagType: true },
+    });
+    const tagMap = new Map<number, unknown>(
+      (tags as Array<{ id: number }>).map((tag) => [tag.id, tag as unknown])
+    );
+    const distributorTagIdMap = new Map<number, Set<number>>();
+    for (const row of refs) {
+      if (!tagMap.has(row.tagId)) continue;
+      if (!distributorTagIdMap.has(row.distributorId)) {
+        distributorTagIdMap.set(row.distributorId, new Set<number>());
+      }
+      distributorTagIdMap.get(row.distributorId)!.add(row.tagId);
+    }
+
+    for (const [distributorId, distributorTagIds] of distributorTagIdMap) {
+      map.set(
+        distributorId,
+        Array.from(distributorTagIds)
+          .map((tagId) => tagMap.get(tagId))
+          .filter((tag): tag is unknown => tag != null)
+      );
+    }
+    return map;
+  }
+
   async findManyPaginated(page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
     const [items, total] = await Promise.all([
       db.query.distributorsTable.findMany({
@@ -24,7 +71,18 @@ class DistributorsService {
       }),
       db.$count(distributorsTable),
     ]);
-    return { page, pageSize, total: total ?? 0, items };
+    const tagMap = await this.getDistributorTagsMap(
+      (items as Array<{ id: number }>).map((item) => item.id)
+    );
+    return {
+      page,
+      pageSize,
+      total: total ?? 0,
+      items: (items as Array<{ id: number }>).map((item) => ({
+        ...item,
+        tags: tagMap.get(item.id) ?? [],
+      })),
+    };
   }
 
   async searchPaginated(keyword: string, page: number, pageSize: number, offset: number): Promise<PaginatedResult<unknown>> {
@@ -41,13 +99,30 @@ class DistributorsService {
       }),
       db.$count(distributorsTable, condition),
     ]);
-    return { page, pageSize, total: total ?? 0, items };
+    const tagMap = await this.getDistributorTagsMap(
+      (items as Array<{ id: number }>).map((item) => item.id)
+    );
+    return {
+      page,
+      pageSize,
+      total: total ?? 0,
+      items: (items as Array<{ id: number }>).map((item) => ({
+        ...item,
+        tags: tagMap.get(item.id) ?? [],
+      })),
+    };
   }
 
   async findById(id: number) {
-    return db.query.distributorsTable.findFirst({
+    const item = await db.query.distributorsTable.findFirst({
       where: eq(distributorsTable.id, id),
     });
+    if (!item) return null;
+    const tagMap = await this.getDistributorTagsMap([id]);
+    return {
+      ...item,
+      tags: tagMap.get(id) ?? [],
+    };
   }
 
   idsExist(ids: number[]): Promise<boolean> {
@@ -124,6 +199,22 @@ class DistributorsService {
         await tx.delete(distributorsTable).where(eq(distributorsTable.id, sourceId));
       }
 
+      const sourceIdSet = new Set(dedupedSourceIds);
+      const strategies = await tx.query.bindingStrategiesTable.findMany({
+        columns: { id: true, distributorIds: true },
+      });
+      for (const strategy of strategies) {
+        const distributorIds = strategy.distributorIds ?? [];
+        if (!distributorIds.some((id) => sourceIdSet.has(id))) continue;
+        const mergedDistributorIds = [
+          ...new Set(distributorIds.map((id) => (sourceIdSet.has(id) ? targetId : id))),
+        ];
+        await tx
+          .update(bindingStrategiesTable)
+          .set({ distributorIds: mergedDistributorIds, updatedAt: new Date() })
+          .where(eq(bindingStrategiesTable.id, strategy.id));
+      }
+
       await tx.update(distributorsTable).set({ updatedAt: new Date() }).where(eq(distributorsTable.id, targetId));
     });
 
@@ -138,8 +229,22 @@ class DistributorsService {
   }
 
   async delete(id: number) {
-    await db.delete(videoDistributorsTable).where(eq(videoDistributorsTable.distributorId, id));
-    const rows = await db.delete(distributorsTable).where(eq(distributorsTable.id, id)).returning();
+    const rows = await db.transaction(async (tx) => {
+      await tx.delete(videoDistributorsTable).where(eq(videoDistributorsTable.distributorId, id));
+      const strategies = await tx.query.bindingStrategiesTable.findMany({
+        columns: { id: true, distributorIds: true },
+      });
+      for (const strategy of strategies) {
+        const distributorIds = strategy.distributorIds ?? [];
+        if (!distributorIds.includes(id)) continue;
+        const nextDistributorIds = distributorIds.filter((distributorId) => distributorId !== id);
+        await tx
+          .update(bindingStrategiesTable)
+          .set({ distributorIds: nextDistributorIds, updatedAt: new Date() })
+          .where(eq(bindingStrategiesTable.id, strategy.id));
+      }
+      return tx.delete(distributorsTable).where(eq(distributorsTable.id, id)).returning();
+    });
     return rows[0] ?? null;
   }
 

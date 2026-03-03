@@ -13,8 +13,10 @@ import {
   useDistributorDelete,
   useDistributorMerge,
 } from '../hooks/useDistributors';
+import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { validateListSearch } from '../schemas/listSearch';
 import type { Distributor } from '../api/types';
+import type { Tag, TagType } from '../api/types';
 
 export const Route = createFileRoute('/distributors')({
   validateSearch: validateListSearch,
@@ -206,6 +208,24 @@ function DistributorsPage() {
     { id: 'id', label: 'ID', width: 80, render: (r) => r.id },
     { id: 'name', label: '名称', render: (r) => r.name },
     { id: 'domain', label: '域名', render: (r) => r.domain ?? '-' },
+    {
+      id: 'tags',
+      label: '标签',
+      render: (r) =>
+        r.tags?.length ? (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {r.tags.map((tag) => (
+              <EntityPreview
+                key={tag.id}
+                entityType="tag"
+                entity={tag as Tag & { tagType?: TagType }}
+              />
+            ))}
+          </Box>
+        ) : (
+          '-'
+        ),
+    },
   ];
 
   return (

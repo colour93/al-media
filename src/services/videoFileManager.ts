@@ -46,6 +46,7 @@ type ScanTaskStatus = "pending" | "paused" | "processing" | "completed" | "faile
 type ProcessFileOptions = {
   force?: boolean;
   skipAutoVideoBind?: boolean;
+  replaceThumbnail?: boolean;
 };
 
 type StartScanTaskOptions = {
@@ -347,7 +348,26 @@ class VideoFileManager {
       return true;
     }
 
-    const uniqueId = await getFileUniqueId(path);
+    let uniqueId: string;
+    if (!options.force && record) {
+      const nextUniqueId = await getFileUniqueId(path);
+      if (nextUniqueId === record.uniqueId && !mediaMetadataIncomplete) {
+        await db
+          .update(videoFilesTable)
+          .set({
+            fileSize: size,
+            fileModifiedAt: mtime,
+            updatedAt: new Date(),
+          })
+          .where(eq(videoFilesTable.id, record.id));
+        this.logger.debug(`文件特征值未变化，跳过重索引: ${path}`);
+        return true;
+      }
+      uniqueId = nextUniqueId;
+    } else {
+      uniqueId = await getFileUniqueId(path);
+    }
+
     const mediaInfo = await ffmpegManager.getVideoMediaInfo(path);
     const durationRaw = mediaInfo.durationSec;
     const durationSeconds = durationRaw == null ? 0 : durationRaw;
@@ -419,10 +439,22 @@ class VideoFileManager {
       return false;
     }
 
-    const thumbBuf = await ffmpegManager.generateThumbnail(path, { durationSec: durationSeconds });
-    if (thumbBuf) {
-      const thumbnailKey = `${uniqueId}.jpg`;
-      await fileManager.write(thumbnailKey, FileCategory.Thumbnails, thumbBuf);
+    const thumbnailKey = `${uniqueId}.jpg`;
+    const hasExistingThumbnail = fileManager.exists(thumbnailKey, FileCategory.Thumbnails);
+    let thumbnailReady = hasExistingThumbnail;
+    if (options.replaceThumbnail === true || !hasExistingThumbnail) {
+      const thumbBuf = await ffmpegManager.generateThumbnail(path, { durationSec: durationSeconds });
+      if (thumbBuf) {
+        await fileManager.write(thumbnailKey, FileCategory.Thumbnails, thumbBuf);
+        thumbnailReady = true;
+      } else if (!hasExistingThumbnail) {
+        thumbnailReady = false;
+      }
+    } else {
+      this.logger.debug(`缩略图已存在，默认不覆盖: ${thumbnailKey}`);
+    }
+
+    if (thumbnailReady) {
       const contents = await db.query.videoUniqueContentsTable.findMany({
         where: eq(videoUniqueContentsTable.uniqueId, uniqueId),
         columns: { videoId: true },

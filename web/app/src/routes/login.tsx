@@ -1,4 +1,4 @@
-import { createFileRoute, useLocation } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { Box, Button, Paper, Typography } from '@mui/material';
 import { LogIn } from 'lucide-react';
 import { getOidcAuthorizeUrl } from '../api/auth';
@@ -18,8 +18,10 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 function LoginPage() {
-  const location = useLocation();
-  const errorKey = location.search.error;
+  const errorKey =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('error') ?? undefined
+      : undefined;
   const errorMsg = errorKey ? ERROR_MESSAGES[errorKey] ?? '登录失败' : undefined;
 
   const handleLogin = () => {

@@ -186,7 +186,7 @@ export function useVideoCaptureThumbnail() {
 
   return useMutation({
     mutationFn: ({ id, seekSec }: { id: number; seekSec?: number }) =>
-      captureThumbnail(id, seekSec),
+      captureThumbnail(id, seekSec, { replaceExisting: true }),
     onSuccess: (data, { id }) => {
       qc.invalidateQueries({ queryKey: ['videos'] });
       qc.invalidateQueries({ queryKey: KEYS.detail(id) });

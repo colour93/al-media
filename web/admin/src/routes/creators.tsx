@@ -327,6 +327,24 @@ function CreatorsPage() {
     },
     { id: 'platform', label: '平台', render: (r) => r.platform ?? '-' },
     { id: 'platformId', label: '平台ID', render: (r) => r.platformId ?? '-' },
+    {
+      id: 'tags',
+      label: '标签',
+      render: (r) =>
+        r.tags?.length ? (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {r.tags.map((tag) => (
+              <EntityPreview
+                key={tag.id}
+                entityType="tag"
+                entity={tag as Tag & { tagType?: TagType }}
+              />
+            ))}
+          </Box>
+        ) : (
+          '-'
+        ),
+    },
   ];
 
   return (

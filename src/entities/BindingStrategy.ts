@@ -23,6 +23,10 @@ export const bindingStrategiesTable = pgTable("binding_strategies", {
     .array()
     .notNull()
     .default(sql`ARRAY[]::integer[]`),
+  distributorIds: integer("distributor_ids")
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::integer[]`),
   enabled: boolean().notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),

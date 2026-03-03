@@ -26,16 +26,18 @@ import { useFileDirsList } from '../hooks/useFileDirs';
 import { useTagsList } from '../hooks/useTags';
 import { useActorCreate, useActorsList } from '../hooks/useActors';
 import { useCreatorCreate, useCreatorsList } from '../hooks/useCreators';
+import { useDistributorCreate, useDistributorsList } from '../hooks/useDistributors';
 import { fetchTag, fetchTagsList, searchTags } from '../api/tags';
 import { fetchActor, fetchActorsList, searchActors } from '../api/actors';
 import { fetchCreator, fetchCreatorsList, searchCreators } from '../api/creators';
+import { fetchDistributor, fetchDistributorsList, searchDistributors } from '../api/distributors';
 import { fetchVideoFileFolderChildren } from '../api/videoFiles';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { renderLucideIcon } from '../utils/lucideIcons';
 import { getTagChipSx } from '../utils/tagChipSx';
 import { validateListSearch } from '../schemas/listSearch';
-import type { BindingStrategy, Tag, TagType, Actor, Creator, FileDir } from '../api/types';
+import type { BindingStrategy, Tag, TagType, Actor, Creator, Distributor, FileDir } from '../api/types';
 
 const STRATEGY_TYPES = [
   { value: 'folder' as const, label: '文件夹' },
@@ -62,6 +64,7 @@ function formatBindingSummary(s: BindingStrategy): string {
   if (s.tagIds?.length) parts.push(`${s.tagIds.length} 标签`);
   if (s.creatorIds?.length) parts.push(`${s.creatorIds.length} 创作者`);
   if (s.actorIds?.length) parts.push(`${s.actorIds.length} 演员`);
+  if (s.distributorIds?.length) parts.push(`${s.distributorIds.length} 发行方`);
   return parts.length ? parts.join('、') : '-';
 }
 
@@ -77,6 +80,7 @@ function StrategiesPage() {
   const { data: tagsData } = useTagsList(1, 100, '');
   const { data: actorsData } = useActorsList(1, 100, '');
   const { data: creatorsData } = useCreatorsList(1, 100, '');
+  const { data: distributorsData } = useDistributorsList(1, 100, '');
 
   const createMut = useBindingStrategyCreate();
   const updateMut = useBindingStrategyUpdate();
@@ -84,6 +88,7 @@ function StrategiesPage() {
   const applyMut = useApplyStrategy();
   const actorCreateMut = useActorCreate();
   const creatorCreateMut = useCreatorCreate();
+  const distributorCreateMut = useDistributorCreate();
 
   const [searchDraft, setSearchDraft] = useState(keyword);
   useEffect(() => {
@@ -99,10 +104,12 @@ function StrategiesPage() {
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
   const [formCreatorIds, setFormCreatorIds] = useState<number[]>([]);
   const [formActorIds, setFormActorIds] = useState<number[]>([]);
+  const [formDistributorIds, setFormDistributorIds] = useState<number[]>([]);
   const [formEnabled, setFormEnabled] = useState(true);
   const [additionalTags, setAdditionalTags] = useState<(Tag & { tagType?: TagType })[]>([]);
   const [additionalActors, setAdditionalActors] = useState<Actor[]>([]);
   const [additionalCreators, setAdditionalCreators] = useState<Creator[]>([]);
+  const [additionalDistributors, setAdditionalDistributors] = useState<Distributor[]>([]);
   const [folderPrefixOptions, setFolderPrefixOptions] = useState<string[]>([]);
   const [folderPrefixLoading, setFolderPrefixLoading] = useState(false);
   const [selectedQuickPrefix, setSelectedQuickPrefix] = useState('');
@@ -124,6 +131,10 @@ function StrategiesPage() {
     () => mergeById((creatorsData?.items ?? []) as Creator[], additionalCreators),
     [additionalCreators, creatorsData?.items]
   );
+  const distributors = useMemo(
+    () => mergeById((distributorsData?.items ?? []) as Distributor[], additionalDistributors),
+    [additionalDistributors, distributorsData?.items]
+  );
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -134,10 +145,12 @@ function StrategiesPage() {
     setFormTagIds([]);
     setFormCreatorIds([]);
     setFormActorIds([]);
+    setFormDistributorIds([]);
     setFormEnabled(true);
     setAdditionalTags([]);
     setAdditionalActors([]);
     setAdditionalCreators([]);
+    setAdditionalDistributors([]);
     setFolderPrefixOptions([]);
     setFolderPrefixLoading(false);
     setSelectedQuickPrefix('');
@@ -153,10 +166,12 @@ function StrategiesPage() {
     setFormTagIds(row.tagIds ?? []);
     setFormCreatorIds(row.creatorIds ?? []);
     setFormActorIds(row.actorIds ?? []);
+    setFormDistributorIds(row.distributorIds ?? []);
     setFormEnabled(row.enabled);
     setAdditionalTags([]);
     setAdditionalActors([]);
     setAdditionalCreators([]);
+    setAdditionalDistributors([]);
     setFolderPrefixOptions([]);
     setFolderPrefixLoading(false);
     setSelectedQuickPrefix('');
@@ -172,6 +187,7 @@ function StrategiesPage() {
       setFormTagIds(strategyDetail.tagIds ?? []);
       setFormCreatorIds(strategyDetail.creatorIds ?? []);
       setFormActorIds(strategyDetail.actorIds ?? []);
+      setFormDistributorIds(strategyDetail.distributorIds ?? []);
       setFormEnabled(strategyDetail.enabled);
     }
   }, [strategyDetail]);
@@ -255,17 +271,21 @@ function StrategiesPage() {
       !creators.some((item) => item.id === id)
     );
     const missingActorIds = formActorIds.filter((id) => !actors.some((item) => item.id === id));
+    const missingDistributorIds = formDistributorIds.filter(
+      (id) => !distributors.some((item) => item.id === id)
+    );
     if (
       missingTagIds.length === 0 &&
       missingCreatorIds.length === 0 &&
-      missingActorIds.length === 0
+      missingActorIds.length === 0 &&
+      missingDistributorIds.length === 0
     ) {
       return;
     }
 
     let cancelled = false;
     const loadMissing = async () => {
-      const [tagRows, creatorRows, actorRows] = await Promise.all([
+      const [tagRows, creatorRows, actorRows, distributorRows] = await Promise.all([
         Promise.all(
           missingTagIds.map(async (id) => {
             try {
@@ -293,6 +313,15 @@ function StrategiesPage() {
             }
           })
         ),
+        Promise.all(
+          missingDistributorIds.map(async (id) => {
+            try {
+              return await fetchDistributor(id);
+            } catch {
+              return null;
+            }
+          })
+        ),
       ]);
 
       if (cancelled) return;
@@ -305,13 +334,26 @@ function StrategiesPage() {
       setAdditionalActors((prev) =>
         mergeById(prev, actorRows.filter((item): item is Actor => !!item))
       );
+      setAdditionalDistributors((prev) =>
+        mergeById(prev, distributorRows.filter((item): item is Distributor => !!item))
+      );
     };
 
     void loadMissing();
     return () => {
       cancelled = true;
     };
-  }, [actors, creators, formActorIds, formCreatorIds, formOpen, formTagIds, tags]);
+  }, [
+    actors,
+    creators,
+    distributors,
+    formActorIds,
+    formCreatorIds,
+    formDistributorIds,
+    formOpen,
+    formTagIds,
+    tags,
+  ]);
 
   const handleFormClose = () => {
     setFormOpen(false);
@@ -319,6 +361,7 @@ function StrategiesPage() {
     setAdditionalTags([]);
     setAdditionalActors([]);
     setAdditionalCreators([]);
+    setAdditionalDistributors([]);
     setFolderPrefixOptions([]);
     setFolderPrefixLoading(false);
     setSelectedQuickPrefix('');
@@ -334,6 +377,7 @@ function StrategiesPage() {
       tagIds: formTagIds,
       creatorIds: formCreatorIds,
       actorIds: formActorIds,
+      distributorIds: formDistributorIds,
       enabled: formEnabled,
     };
     if (editing) {
@@ -406,6 +450,7 @@ function StrategiesPage() {
   const selectedTags = tags.filter((t) => formTagIds.includes(t.id));
   const selectedCreators = creators.filter((c) => formCreatorIds.includes(c.id));
   const selectedActors = actors.filter((a) => formActorIds.includes(a.id));
+  const selectedDistributors = distributors.filter((d) => formDistributorIds.includes(d.id));
 
   const formValid =
     formType === 'folder'
@@ -627,6 +672,28 @@ function StrategiesPage() {
             renderOption={(_, c) => <EntityPreview entityType="creator" entity={c} inline />}
             onCreate={async (name) => creatorCreateMut.mutateAsync({ name, type: 'person' })}
             onCreated={(entity) => setAdditionalCreators((prev) => mergeById(prev, [entity]))}
+          />
+          <EntityCreateAutocomplete<Distributor>
+            label="发行方"
+            placeholder="搜索发行方，不存在可直接新建"
+            options={distributors}
+            value={selectedDistributors}
+            onChange={setFormDistributorIds}
+            onSelectionObjectsChange={(items) =>
+              setAdditionalDistributors((prev) => mergeById(prev, items))
+            }
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchDistributors(keyword.trim(), page, pageSize)
+                : fetchDistributorsList(page, pageSize)
+            }
+            getOptionLabel={(d) => d.name}
+            renderOption={(_, d) => <EntityPreview entityType="distributor" entity={d} inline />}
+            onCreate={async (name) => distributorCreateMut.mutateAsync({ name })}
+            onCreated={(entity) =>
+              setAdditionalDistributors((prev) => mergeById(prev, [entity]))
+            }
           />
           <EntityCreateAutocomplete<Actor>
             label="演员"

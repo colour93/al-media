@@ -1,7 +1,8 @@
-import { asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { videoFilesTable } from "../entities/VideoFile";
 import { fileDirsTable } from "../entities/FileDir";
+import { videoUniqueContentsTable } from "../entities/VideoUniqueContent";
 import type { PaginatedResult } from "../utils/pagination";
 import { evaluateVideoWebCompatibility } from "../utils/videoWebCompatibility";
 
@@ -17,6 +18,14 @@ const videoFileWithRelations = {
 } as const;
 
 const VIDEO_FILE_SORT_KEYS = ["id", "fileKey", "uniqueId", "fileSize", "videoDuration", "createdAt", "updatedAt"] as const;
+
+export type VideoFileWebCompatibilityFilter = "all" | "compatible" | "incompatible";
+export type VideoFileHasVideoFilter = "all" | "bound" | "unbound";
+export type VideoFileListFilters = {
+  webCompatibility?: VideoFileWebCompatibilityFilter;
+  hasVideo?: VideoFileHasVideoFilter;
+  fileDirId?: number;
+};
 
 function buildVideoFileOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
   const col = sortBy && VIDEO_FILE_SORT_KEYS.includes(sortBy as (typeof VIDEO_FILE_SORT_KEYS)[number])
@@ -49,6 +58,71 @@ function toVideoFileResponse(
   return { ...videoFile, ...compatibility, video, fileDir, thumbnailKey };
 }
 
+function buildVideoFileWebCompatibleSql() {
+  const normalizedFileKeySql = sql<string>`replace(${videoFilesTable.fileKey}, chr(92), '/')`;
+  const containerSql = sql<string>`lower(coalesce(substring(${normalizedFileKeySql} from '\\.([^.\\/]+)$'), ''))`;
+  const videoCodecRawSql = sql<string>`lower(trim(coalesce(${videoFilesTable.videoCodec}, '')))`;
+  const videoCodecSql = sql<string>`case
+    when ${videoCodecRawSql} = '' then ''
+    when ${videoCodecRawSql} = 'libx264' then 'h264'
+    when ${videoCodecRawSql} like 'avc%' then 'avc'
+    when ${videoCodecRawSql} in ('hevc', 'h265') then 'h265'
+    else ${videoCodecRawSql}
+  end`;
+  const audioCodecSql = sql<string>`lower(trim(coalesce(${videoFilesTable.audioCodec}, '')))`;
+  const hasAnySignalSql = sql<boolean>`(
+    ${containerSql} <> '' or
+    ${videoCodecRawSql} <> '' or
+    ${audioCodecSql} <> '' or
+    ${videoFilesTable.mp4MoovBeforeMdat} is not null
+  )`;
+  return sql<boolean>`(
+    (not ${hasAnySignalSql})
+    or (
+      ${containerSql} in ('mp4', 'm4v', 'webm')
+      and ${videoCodecSql} in ('h264', 'avc', 'avc1', 'vp8', 'vp9', 'av1')
+      and (${audioCodecSql} = '' or ${audioCodecSql} in ('aac', 'mp3', 'opus', 'vorbis'))
+      and (${containerSql} <> 'mp4' or ${videoFilesTable.mp4MoovBeforeMdat} = true)
+    )
+  )`;
+}
+
+function buildVideoFileWebCompatibilityWhere(filter: VideoFileWebCompatibilityFilter) {
+  if (filter === "all") return undefined;
+  const compatibleSql = buildVideoFileWebCompatibleSql();
+  if (filter === "compatible") {
+    return compatibleSql;
+  }
+  return sql<boolean>`not (${compatibleSql})`;
+}
+
+function buildVideoFileFilterConditions(filters?: VideoFileListFilters) {
+  const webCompatibility = filters?.webCompatibility ?? "all";
+  const hasVideo = filters?.hasVideo ?? "all";
+  const fileDirId = filters?.fileDirId;
+  const conditions = [];
+
+  if (Number.isInteger(fileDirId) && (fileDirId as number) > 0) {
+    conditions.push(eq(videoFilesTable.fileDirId, fileDirId as number));
+  }
+
+  const compatibilityCondition = buildVideoFileWebCompatibilityWhere(webCompatibility);
+  if (compatibilityCondition) {
+    conditions.push(compatibilityCondition);
+  }
+
+  if (hasVideo !== "all") {
+    const hasVideoCondition = sql<boolean>`exists (
+      select 1
+      from ${videoUniqueContentsTable}
+      where ${videoUniqueContentsTable.uniqueId} = ${videoFilesTable.uniqueId}
+    )`;
+    conditions.push(hasVideo === "bound" ? hasVideoCondition : sql<boolean>`not (${hasVideoCondition})`);
+  }
+
+  return conditions;
+}
+
 type FolderChildrenCacheValue = {
   expiresAt: number;
   value: { items: Array<{ fileDirId: number; path: string; name: string }>; nextCursor: string | null };
@@ -69,17 +143,21 @@ class VideoFilesService {
     pageSize: number,
     offset: number,
     sortBy?: string,
-    sortOrder?: "asc" | "desc"
+    sortOrder?: "asc" | "desc",
+    options?: VideoFileListFilters
   ): Promise<PaginatedResult<unknown>> {
+    const filterConditions = buildVideoFileFilterConditions(options);
+    const where = filterConditions.length > 0 ? and(...filterConditions) : undefined;
     const orderByFn = buildVideoFileOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videoFilesTable.findMany({
+        where,
         orderBy: orderByFn as Parameters<typeof db.query.videoFilesTable.findMany>[0]["orderBy"],
         limit: pageSize,
         offset,
         with: videoFileWithRelations,
       }),
-      db.$count(videoFilesTable),
+      where ? db.$count(videoFilesTable, where) : db.$count(videoFilesTable),
     ]);
     return { page, pageSize, total: total ?? 0, items: items.map((it) => toVideoFileResponse(it)) };
   }
@@ -90,21 +168,33 @@ class VideoFilesService {
     pageSize: number,
     offset: number,
     sortBy?: string,
-    sortOrder?: "asc" | "desc"
+    sortOrder?: "asc" | "desc",
+    options?: VideoFileListFilters
   ): Promise<PaginatedResult<unknown>> {
     const dirsWithPath = await db
       .select({ id: fileDirsTable.id })
       .from(fileDirsTable)
       .where(ilike(fileDirsTable.path, `%${keyword}%`));
     const dirIds = dirsWithPath.map((d) => d.id);
+    const keywordTrimmed = keyword.trim();
+    const numericKeyword = keywordTrimmed.startsWith("#") ? keywordTrimmed.slice(1) : keywordTrimmed;
     const conditions = [
       ilike(videoFilesTable.fileKey, `%${keyword}%`),
       ilike(videoFilesTable.uniqueId, `%${keyword}%`),
     ];
+    if (/^\d+$/.test(numericKeyword)) {
+      const keywordId = Number(numericKeyword);
+      if (Number.isSafeInteger(keywordId) && keywordId > 0) {
+        conditions.push(eq(videoFilesTable.id, keywordId));
+      }
+    }
     if (dirIds.length > 0) {
       conditions.push(inArray(videoFilesTable.fileDirId, dirIds));
     }
-    const condition = or(...conditions);
+    const keywordCondition = or(...conditions) ?? sql<boolean>`true`;
+    const filterConditions = buildVideoFileFilterConditions(options);
+    const condition =
+      filterConditions.length > 0 ? and(keywordCondition, ...filterConditions) : keywordCondition;
     const orderByFn = buildVideoFileOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videoFilesTable.findMany({

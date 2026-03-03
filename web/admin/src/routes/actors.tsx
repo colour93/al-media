@@ -290,7 +290,20 @@ function ActorsPage() {
     {
       id: 'tags',
       label: '标签',
-      render: () => '-',
+      render: (r) =>
+        r.tags?.length ? (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {r.tags.map((tag) => (
+              <EntityPreview
+                key={tag.id}
+                entityType="tag"
+                entity={tag as Tag & { tagType?: TagType }}
+              />
+            ))}
+          </Box>
+        ) : (
+          '-'
+        ),
     },
   ];
 
