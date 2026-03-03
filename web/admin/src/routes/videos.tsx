@@ -42,6 +42,7 @@ import { fetchDistributorsList, searchDistributors } from '../api/distributors';
 import { fetchTagsList, searchTags } from '../api/tags';
 import { getFileUrl } from '../api/file';
 import { renderLucideIcon } from '../utils/lucideIcons';
+import { getTagChipSx } from '../utils/tagChipSx';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { VideoPreviewDialog } from '../components/VideoPreviewDialog/VideoPreviewDialog';
@@ -749,10 +750,7 @@ function VideosPage() {
                           size="small"
                           icon={iconEl ? (iconEl as React.ReactElement) : undefined}
                           label={label}
-                          sx={{
-                            bgcolor: t.color ?? 'action.selected',
-                            '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
-                          }}
+                          sx={getTagChipSx(t.color)}
                         />
                       );
                     })
@@ -818,10 +816,7 @@ function VideosPage() {
                     size="small"
                     icon={iconEl ? (iconEl as React.ReactElement) : undefined}
                     label={label}
-                    sx={{
-                      bgcolor: t.color ?? 'action.selected',
-                      '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
-                    }}
+                    sx={getTagChipSx(t.color)}
                   />
                 );
               })

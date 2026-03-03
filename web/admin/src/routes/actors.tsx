@@ -20,6 +20,7 @@ import { fetchTagsList, searchTags } from '../api/tags';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { renderLucideIcon } from '../utils/lucideIcons';
+import { getTagChipSx } from '../utils/tagChipSx';
 import { validateListSearch } from '../schemas/listSearch';
 import type { Actor } from '../api/types';
 import type { Tag, TagType } from '../api/types';
@@ -379,10 +380,7 @@ function ActorsPage() {
                     size="small"
                     icon={iconEl ? (iconEl as ReactElement) : undefined}
                     label={label}
-                    sx={{
-                      bgcolor: t.color ?? 'action.selected',
-                      '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
-                    }}
+                    sx={getTagChipSx(t.color)}
                   />
                 );
               })

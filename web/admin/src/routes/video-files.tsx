@@ -69,6 +69,7 @@ import { fetchTagsList, searchTags } from '../api/tags';
 import { useFileDirsList } from '../hooks/useFileDirs';
 import { getFileUrl } from '../api/file';
 import { renderLucideIcon } from '../utils/lucideIcons';
+import { getTagChipSx } from '../utils/tagChipSx';
 import { formatDurationHuman } from '../utils/format';
 import { useQueryClient } from '@tanstack/react-query';
 import { validateListSearch } from '../schemas/listSearch';
@@ -1272,10 +1273,7 @@ function VideoFilesPage() {
                     size="small"
                     icon={icon ? (icon as React.ReactElement) : undefined}
                     label={label}
-                    sx={{
-                      bgcolor: t.color ?? 'action.selected',
-                      '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
-                    }}
+                    sx={getTagChipSx(t.color)}
                   />
                 );
               })

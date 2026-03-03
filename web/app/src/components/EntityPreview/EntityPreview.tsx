@@ -3,6 +3,7 @@ import { Box, Chip, Typography } from '@mui/material';
 import { Link } from '@tanstack/react-router';
 import { getFileUrl } from '../../api/file';
 import { renderLucideIcon } from '../../utils/lucideIcons';
+import { getTagChipSx } from '../../utils/tagChipSx';
 import type { Actor, Creator, Tag } from '../../api/types';
 
 export type EntityType = 'actor' | 'creator' | 'tag';
@@ -164,11 +165,7 @@ export function EntityPreview({
             size="small"
             icon={iconEl ? (iconEl as React.ReactElement) : undefined}
             label={label}
-            sx={{
-              bgcolor: t.color ?? 'action.selected',
-              '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
-              maxWidth: 200,
-            }}
+            sx={getTagChipSx(t.color, { maxWidth: 200 })}
           />
         );
       }

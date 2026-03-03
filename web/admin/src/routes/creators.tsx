@@ -19,6 +19,7 @@ import { fetchActorsList, searchActors } from '../api/actors';
 import { fetchTagsList, searchTags } from '../api/tags';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { renderLucideIcon } from '../utils/lucideIcons';
+import { getTagChipSx } from '../utils/tagChipSx';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { EntityCreateSingleAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateSingleAutocomplete';
 import { validateListSearch } from '../schemas/listSearch';
@@ -458,10 +459,7 @@ function CreatorsPage() {
                     size="small"
                     icon={iconEl ? (iconEl as ReactElement) : undefined}
                     label={label}
-                    sx={{
-                      bgcolor: t.color ?? 'action.selected',
-                      '& .MuiChip-label': { color: t.color ? 'rgba(0,0,0,0.7)' : 'inherit' },
-                    }}
+                    sx={getTagChipSx(t.color)}
                   />
                 );
               })
