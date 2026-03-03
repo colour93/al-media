@@ -72,3 +72,18 @@ export async function updateCreator(
 export async function deleteCreator(id: number): Promise<Creator> {
   return del<Creator>(`${BASE}/${id}`);
 }
+
+export type MergeCreatorsResult = {
+  targetId: number;
+  mergedIds: number[];
+  removed: number;
+  movedRefs: number;
+  item?: Creator | null;
+};
+
+export async function mergeCreators(
+  targetId: number,
+  sourceIds: number[]
+): Promise<MergeCreatorsResult> {
+  return post<MergeCreatorsResult>(`${BASE}/merge`, { targetId, sourceIds });
+}

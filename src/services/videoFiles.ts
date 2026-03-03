@@ -126,21 +126,26 @@ class VideoFilesService {
     const prefix = normalizedPath ? `${normalizedPath}/` : "";
     const prefixLike = `${prefix}%`;
     const startPos = prefix.length + 1;
-    const normalizedFileKeySql = sql<string>`replace(${videoFilesTable.fileKey}, chr(92), '/')`;
-    const childNameSql = sql<string>`split_part(substring(${normalizedFileKeySql} from ${startPos}), '/', 1)`;
-
-    const rows = await db
-      .select({ name: childNameSql })
-      .from(videoFilesTable)
-      .where(sql<boolean>`
-        ${videoFilesTable.fileDirId} = ${fileDirId}
-        and ${normalizedFileKeySql} like ${prefixLike}
-        and position('/' in substring(${normalizedFileKeySql} from ${startPos})) > 0
-        ${cursor ? sql`and ${childNameSql} > ${cursor}` : sql``}
-      `)
-      .groupBy(childNameSql)
-      .orderBy(childNameSql)
-      .limit(pageSize + 1);
+    const rowsResult = await db.execute<{ name: string }>(sql`
+      with folder_candidates as (
+        select split_part(
+          substring(replace("fileKey", chr(92), '/') from cast(${startPos} as integer)),
+          '/',
+          1
+        ) as name
+        from video_files
+        where "fileDirId" = ${fileDirId}
+          and replace("fileKey", chr(92), '/') like ${prefixLike}
+          and position('/' in substring(replace("fileKey", chr(92), '/') from cast(${startPos} as integer))) > 0
+      )
+      select distinct name
+      from folder_candidates
+      where name <> ''
+      ${cursor ? sql`and name > ${cursor}` : sql``}
+      order by name
+      limit ${pageSize + 1}
+    `);
+    const rows = rowsResult.rows;
 
     const hasMore = rows.length > pageSize;
     const sliced = hasMore ? rows.slice(0, pageSize) : rows;
@@ -172,7 +177,7 @@ class VideoFilesService {
       where: sql<boolean>`
         ${videoFilesTable.fileDirId} = ${fileDirId}
         and ${normalizedFileKeySql} like ${prefixLike}
-        and position('/' in substring(${normalizedFileKeySql} from ${startPos})) = 0
+        and position('/' in substring(${normalizedFileKeySql} from cast(${startPos} as integer))) = 0
         ${cursor ? sql`and ${videoFilesTable.fileKey} > ${cursor}` : sql``}
       `,
       orderBy: [asc(videoFilesTable.fileKey)],

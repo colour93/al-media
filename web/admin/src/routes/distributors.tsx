@@ -12,6 +12,7 @@ import {
   useDistributorCreate,
   useDistributorUpdate,
   useDistributorDelete,
+  useDistributorMerge,
 } from '../hooks/useDistributors';
 import { validateListSearch } from '../schemas/listSearch';
 import type { Distributor } from '../api/types';
@@ -22,6 +23,15 @@ export const Route = createFileRoute('/distributors')({
   component: DistributorsPage,
 });
 
+function parseIdList(value: string): number[] {
+  return [...new Set(
+    value
+      .split(/[,\s，]+/)
+      .map((it) => Number(it.trim()))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  )];
+}
+
 function DistributorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { page, pageSize, keyword, editId } = Route.useSearch();
@@ -31,6 +41,7 @@ function DistributorsPage() {
   const createMut = useDistributorCreate();
   const updateMut = useDistributorUpdate();
   const deleteMut = useDistributorDelete();
+  const mergeMut = useDistributorMerge();
 
   const [searchDraft, setSearchDraft] = useState(keyword);
   useEffect(() => {setSearchDraft(keyword)}, [keyword]);
@@ -38,6 +49,9 @@ function DistributorsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Distributor | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Distributor | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeTargetIdInput, setMergeTargetIdInput] = useState('');
+  const [mergeSourceIdsInput, setMergeSourceIdsInput] = useState('');
   const [formName, setFormName] = useState('');
   const [formDomain, setFormDomain] = useState('');
 
@@ -96,6 +110,21 @@ function DistributorsPage() {
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
+  const mergeTargetId = Number(mergeTargetIdInput);
+  const mergeSourceIds = parseIdList(mergeSourceIdsInput);
+  const mergeValid =
+    Number.isInteger(mergeTargetId) &&
+    mergeTargetId > 0 &&
+    mergeSourceIds.length > 0 &&
+    !mergeSourceIds.includes(mergeTargetId);
+
+  const handleMergeSubmit = async () => {
+    if (!mergeValid) return;
+    await mergeMut.mutateAsync({ targetId: mergeTargetId, sourceIds: mergeSourceIds });
+    setMergeOpen(false);
+    setMergeTargetIdInput('');
+    setMergeSourceIdsInput('');
+  };
 
   return (
     <Box>
@@ -103,9 +132,21 @@ function DistributorsPage() {
         <Typography variant="h5" fontWeight={600}>
           发行方
         </Typography>
-        <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
-          新建
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setMergeTargetIdInput('');
+              setMergeSourceIdsInput('');
+              setMergeOpen(true);
+            }}
+          >
+            快速合并
+          </Button>
+          <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
+            新建
+          </Button>
+        </Box>
       </Box>
 
       <DataTable<Distributor>
@@ -168,6 +209,35 @@ function DistributorsPage() {
         </Box>
       </FormDialog>
 
+      <FormDialog
+        open={mergeOpen}
+        title="快速合并发行方"
+        onClose={() => setMergeOpen(false)}
+        onSubmit={handleMergeSubmit}
+        loading={mergeMut.isPending}
+        submitDisabled={!mergeValid}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <TextField
+            label="目标发行方 ID"
+            value={mergeTargetIdInput}
+            onChange={(e) => setMergeTargetIdInput(e.target.value)}
+            required
+            fullWidth
+            placeholder="例如 301"
+          />
+          <TextField
+            label="待合并 ID（逗号/空格分隔）"
+            value={mergeSourceIdsInput}
+            onChange={(e) => setMergeSourceIdsInput(e.target.value)}
+            required
+            fullWidth
+            placeholder="例如 302,303,304"
+            helperText="会将待合并发行方的视频关联迁移到目标 ID"
+          />
+        </Box>
+      </FormDialog>
+
       <DeleteConfirm
         open={!!deleteTarget}
         message={deleteTarget ? `确定要删除「${deleteTarget.name}」吗？` : ''}
@@ -178,3 +248,4 @@ function DistributorsPage() {
     </Box>
   );
 }
+

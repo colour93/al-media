@@ -12,6 +12,7 @@ import {
   useCreatorUpdate,
   useCreatorDelete,
   useCreator,
+  useCreatorMerge,
 } from '../hooks/useCreators';
 import { useActor, useActorCreate, useActorsList } from '../hooks/useActors';
 import { useTagsList } from '../hooks/useTags';
@@ -52,6 +53,15 @@ function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
   return Array.from(map.values());
 }
 
+function parseIdList(value: string): number[] {
+  return [...new Set(
+    value
+      .split(/[,\s，]+/)
+      .map((it) => Number(it.trim()))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  )];
+}
+
 function CreatorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { page, pageSize, keyword, sortBy, sortOrder, editId } = Route.useSearch();
@@ -65,6 +75,7 @@ function CreatorsPage() {
   const createMut = useCreatorCreate();
   const updateMut = useCreatorUpdate();
   const deleteMut = useCreatorDelete();
+  const mergeMut = useCreatorMerge();
   const actorCreateMut = useActorCreate();
 
   const [searchDraft, setSearchDraft] = useState(keyword);
@@ -72,6 +83,9 @@ function CreatorsPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Creator | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeTargetIdInput, setMergeTargetIdInput] = useState('');
+  const [mergeSourceIdsInput, setMergeSourceIdsInput] = useState('');
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState<'person' | 'group'>('person');
   const [formActorId, setFormActorId] = useState<number | ''>('');
@@ -207,6 +221,21 @@ function CreatorsPage() {
       ? null
       : actors.find((a) => a.id === formActorId) ?? selectedActorDetail ?? null;
   const selectedTags = tags.filter((t) => formTagIds.includes(t.id));
+  const mergeTargetId = Number(mergeTargetIdInput);
+  const mergeSourceIds = useMemo(() => parseIdList(mergeSourceIdsInput), [mergeSourceIdsInput]);
+  const mergeValid =
+    Number.isInteger(mergeTargetId) &&
+    mergeTargetId > 0 &&
+    mergeSourceIds.length > 0 &&
+    !mergeSourceIds.includes(mergeTargetId);
+
+  const handleMergeSubmit = async () => {
+    if (!mergeValid) return;
+    await mergeMut.mutateAsync({ targetId: mergeTargetId, sourceIds: mergeSourceIds });
+    setMergeOpen(false);
+    setMergeTargetIdInput('');
+    setMergeSourceIdsInput('');
+  };
 
   return (
     <Box>
@@ -214,9 +243,21 @@ function CreatorsPage() {
         <Typography variant="h5" fontWeight={600}>
           创作者
         </Typography>
-        <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
-          新建
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setMergeTargetIdInput('');
+              setMergeSourceIdsInput('');
+              setMergeOpen(true);
+            }}
+          >
+            快速合并
+          </Button>
+          <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
+            新建
+          </Button>
+        </Box>
       </Box>
 
       <DataTable<Creator>
@@ -375,6 +416,35 @@ function CreatorsPage() {
         </Box>
       </FormDialog>
 
+      <FormDialog
+        open={mergeOpen}
+        title="快速合并创作者"
+        onClose={() => setMergeOpen(false)}
+        onSubmit={handleMergeSubmit}
+        loading={mergeMut.isPending}
+        submitDisabled={!mergeValid}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <TextField
+            label="目标创作者 ID"
+            value={mergeTargetIdInput}
+            onChange={(e) => setMergeTargetIdInput(e.target.value)}
+            required
+            fullWidth
+            placeholder="例如 201"
+          />
+          <TextField
+            label="待合并 ID（逗号/空格分隔）"
+            value={mergeSourceIdsInput}
+            onChange={(e) => setMergeSourceIdsInput(e.target.value)}
+            required
+            fullWidth
+            placeholder="例如 202,203,204"
+            helperText="会将待合并创作者的视频关联、标签、策略引用迁移到目标 ID"
+          />
+        </Box>
+      </FormDialog>
+
       <DeleteConfirm
         open={!!deleteTarget}
         message={deleteTarget ? `确定要删除「${deleteTarget.name}」吗？` : ''}
@@ -385,3 +455,4 @@ function CreatorsPage() {
     </Box>
   );
 }
+

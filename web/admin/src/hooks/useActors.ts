@@ -6,6 +6,7 @@ import {
   createActor,
   updateActor,
   deleteActor,
+  mergeActors,
 } from '../api/actors';
 import { useSnackbar } from './useSnackbar';
 
@@ -85,5 +86,22 @@ export function useActorDelete() {
       showMessage('删除成功');
     },
     onError: (err: Error) => showError(err?.message ?? '删除失败'),
+  });
+}
+
+export function useActorMerge() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: ({ targetId, sourceIds }: { targetId: number; sourceIds: number[] }) =>
+      mergeActors(targetId, sourceIds),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['actors'] });
+      qc.invalidateQueries({ queryKey: ['creators'] });
+      qc.invalidateQueries({ queryKey: ['bindingStrategies'] });
+      showMessage(`合并完成：移除 ${result.removed} 个演员，迁移 ${result.movedRefs} 条关联`);
+    },
+    onError: (err: Error) => showError(err?.message ?? '合并失败'),
   });
 }

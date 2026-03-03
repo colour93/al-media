@@ -49,6 +49,28 @@ export const creatorsRoutes = new Elysia({ prefix: "/creators" })
     },
     { query: searchQuerySchema }
   )
+  .post(
+    "/merge",
+    async ({ body, set }) => {
+      if (!Array.isArray(body.sourceIds) || body.sourceIds.length === 0) {
+        set.status = 400;
+        return { message: "sourceIds 不能为空" };
+      }
+      const result = await creatorsService.merge(body.targetId, body.sourceIds);
+      if ("error" in result) {
+        const message = result.error ?? "合并创作者失败";
+        set.status = message.includes("不存在") ? 404 : 400;
+        return { message };
+      }
+      return result;
+    },
+    {
+      body: t.Object({
+        targetId: t.Integer(),
+        sourceIds: t.Array(t.Integer()),
+      }),
+    }
+  )
   .get(
     "/:id/videos",
     async ({ params, query, set }) => {

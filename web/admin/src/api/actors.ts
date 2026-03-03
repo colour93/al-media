@@ -66,3 +66,18 @@ export async function updateActorTags(id: number, tags: number[]): Promise<Actor
 export async function deleteActor(id: number): Promise<Actor> {
   return del<Actor>(`${BASE}/${id}`);
 }
+
+export type MergeActorsResult = {
+  targetId: number;
+  mergedIds: number[];
+  removed: number;
+  movedRefs: number;
+  item?: Actor | null;
+};
+
+export async function mergeActors(
+  targetId: number,
+  sourceIds: number[]
+): Promise<MergeActorsResult> {
+  return post<MergeActorsResult>(`${BASE}/merge`, { targetId, sourceIds });
+}

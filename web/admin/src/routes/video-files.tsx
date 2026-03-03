@@ -35,6 +35,7 @@ import {
   ShieldBan,
   Pencil,
   Trash2,
+  BrainCircuit,
 } from 'lucide-react';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { VideoPreviewDialog } from '../components/VideoPreviewDialog/VideoPreviewDialog';
@@ -205,25 +206,18 @@ function FolderLazyView(props: {
 
   const loadMoreChildren = useCallback(async (node: FolderNode) => {
     const key = buildFolderKey(node.fileDirId, node.path);
-    let cursor: string | undefined;
-    let shouldLoad = false;
+    const current = folderChildrenMap[key] ?? createEmptyCursorChunk<FolderNode>();
+    if (current.loading) return;
+    if (current.loaded && !current.nextCursor) return;
+    const cursor = current.nextCursor ?? undefined;
 
-    setFolderChildrenMap((prev) => {
-      const current = prev[key] ?? createEmptyCursorChunk<FolderNode>();
-      if (current.loading) return prev;
-      if (current.loaded && !current.nextCursor) return prev;
-      shouldLoad = true;
-      cursor = current.nextCursor ?? undefined;
-      return {
-        ...prev,
-        [key]: {
-          ...current,
-          loading: true,
-        },
-      };
-    });
-
-    if (!shouldLoad) return;
+    setFolderChildrenMap((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] ?? current),
+        loading: true,
+      },
+    }));
 
     try {
       const res = await fetchVideoFileFolderChildren({
@@ -236,11 +230,13 @@ function FolderLazyView(props: {
         const current = prev[key] ?? createEmptyCursorChunk<FolderNode>();
         const merged = [...current.items, ...res.items.map((it) => ({ ...it, isRoot: false }))];
         const dedupMap = new Map(merged.map((it) => [it.path, it]));
+        const nextCursor =
+          res.nextCursor && res.nextCursor !== (cursor ?? null) ? res.nextCursor : null;
         return {
           ...prev,
           [key]: {
             items: Array.from(dedupMap.values()),
-            nextCursor: res.nextCursor,
+            nextCursor,
             loaded: true,
             loading: false,
           },
@@ -253,35 +249,29 @@ function FolderLazyView(props: {
           ...prev,
           [key]: {
             ...current,
+            nextCursor: null,
             loaded: true,
             loading: false,
           },
         };
       });
     }
-  }, []);
+  }, [folderChildrenMap]);
 
   const loadMoreFiles = useCallback(async (node: FolderNode) => {
     const key = buildFolderKey(node.fileDirId, node.path);
-    let cursor: string | undefined;
-    let shouldLoad = false;
+    const current = folderFilesMap[key] ?? createEmptyCursorChunk<VideoFile>();
+    if (current.loading) return;
+    if (current.loaded && !current.nextCursor) return;
+    const cursor = current.nextCursor ?? undefined;
 
-    setFolderFilesMap((prev) => {
-      const current = prev[key] ?? createEmptyCursorChunk<VideoFile>();
-      if (current.loading) return prev;
-      if (current.loaded && !current.nextCursor) return prev;
-      shouldLoad = true;
-      cursor = current.nextCursor ?? undefined;
-      return {
-        ...prev,
-        [key]: {
-          ...current,
-          loading: true,
-        },
-      };
-    });
-
-    if (!shouldLoad) return;
+    setFolderFilesMap((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] ?? current),
+        loading: true,
+      },
+    }));
 
     try {
       const res = await fetchVideoFilesByFolder({
@@ -294,11 +284,13 @@ function FolderLazyView(props: {
         const current = prev[key] ?? createEmptyCursorChunk<VideoFile>();
         const merged = [...current.items, ...res.items];
         const dedupMap = new Map(merged.map((it) => [it.id, it]));
+        const nextCursor =
+          res.nextCursor && res.nextCursor !== (cursor ?? null) ? res.nextCursor : null;
         return {
           ...prev,
           [key]: {
             items: Array.from(dedupMap.values()),
-            nextCursor: res.nextCursor,
+            nextCursor,
             loaded: true,
             loading: false,
           },
@@ -311,13 +303,14 @@ function FolderLazyView(props: {
           ...prev,
           [key]: {
             ...current,
+            nextCursor: null,
             loaded: true,
             loading: false,
           },
         };
       });
     }
-  }, []);
+  }, [folderFilesMap]);
 
   const toggleExpandFolder = useCallback(
     (node: FolderNode) => {
@@ -1070,7 +1063,10 @@ function VideoFilesPage() {
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1 }}>
           <Box>
-            <Typography variant="h6">视频信息推理任务</Typography>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <BrainCircuit size={18} />
+              视频信息推理任务
+              </Typography>
             <Typography variant="body2" color="text.secondary">
               状态：{formatInferTaskStatus(inferTask?.status)}
               {inferTask?.current?.source ? ` · 类型：${formatInferSource(inferTask.current.source)}` : ''}

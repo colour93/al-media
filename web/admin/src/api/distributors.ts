@@ -40,3 +40,18 @@ export async function updateDistributor(
 export async function deleteDistributor(id: number): Promise<Distributor> {
   return del<Distributor>(`${BASE}/${id}`);
 }
+
+export type MergeDistributorsResult = {
+  targetId: number;
+  mergedIds: number[];
+  removed: number;
+  movedRefs: number;
+  item?: Distributor | null;
+};
+
+export async function mergeDistributors(
+  targetId: number,
+  sourceIds: number[]
+): Promise<MergeDistributorsResult> {
+  return post<MergeDistributorsResult>(`${BASE}/merge`, { targetId, sourceIds });
+}

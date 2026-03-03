@@ -29,6 +29,7 @@ import { useCreatorCreate, useCreatorsList } from '../hooks/useCreators';
 import { fetchTagsList, searchTags } from '../api/tags';
 import { fetchActorsList, searchActors } from '../api/actors';
 import { fetchCreatorsList, searchCreators } from '../api/creators';
+import { fetchVideoFileFolderChildren } from '../api/videoFiles';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { renderLucideIcon } from '../utils/lucideIcons';
@@ -101,6 +102,9 @@ function StrategiesPage() {
   const [additionalTags, setAdditionalTags] = useState<(Tag & { tagType?: TagType })[]>([]);
   const [additionalActors, setAdditionalActors] = useState<Actor[]>([]);
   const [additionalCreators, setAdditionalCreators] = useState<Creator[]>([]);
+  const [folderPrefixOptions, setFolderPrefixOptions] = useState<string[]>([]);
+  const [folderPrefixLoading, setFolderPrefixLoading] = useState(false);
+  const [selectedQuickPrefix, setSelectedQuickPrefix] = useState('');
 
   const fileDirs = (fileDirsData?.items ?? []) as FileDir[];
   const tags = useMemo(
@@ -133,6 +137,9 @@ function StrategiesPage() {
     setAdditionalTags([]);
     setAdditionalActors([]);
     setAdditionalCreators([]);
+    setFolderPrefixOptions([]);
+    setFolderPrefixLoading(false);
+    setSelectedQuickPrefix('');
     setFormOpen(true);
   };
 
@@ -149,6 +156,9 @@ function StrategiesPage() {
     setAdditionalTags([]);
     setAdditionalActors([]);
     setAdditionalCreators([]);
+    setFolderPrefixOptions([]);
+    setFolderPrefixLoading(false);
+    setSelectedQuickPrefix('');
     setFormOpen(true);
   };
 
@@ -172,12 +182,79 @@ function StrategiesPage() {
     }
   }, [editId, strategyDetail]);
 
+  useEffect(() => {
+    if (!formOpen || formType !== 'folder' || formFileDirId === '') {
+      setFolderPrefixOptions([]);
+      setFolderPrefixLoading(false);
+      setSelectedQuickPrefix('');
+      return;
+    }
+
+    let cancelled = false;
+    const loadPrefixes = async () => {
+      setFolderPrefixLoading(true);
+      try {
+        const collected: string[] = [];
+        const queue: string[] = [''];
+        const visited = new Set<string>();
+        let guard = 0;
+
+        while (queue.length > 0 && guard < 5000) {
+          const folderPath = queue.shift() ?? '';
+          let cursor: string | undefined;
+          let pageGuard = 0;
+          do {
+            const result = await fetchVideoFileFolderChildren({
+              fileDirId: Number(formFileDirId),
+              folderPath: folderPath || undefined,
+              cursor,
+              pageSize: 50,
+            });
+            for (const item of result.items) {
+              if (visited.has(item.path)) continue;
+              visited.add(item.path);
+              collected.push(item.path);
+              queue.push(item.path);
+              guard += 1;
+              if (guard >= 5000) break;
+            }
+            cursor = result.nextCursor ?? undefined;
+            pageGuard += 1;
+          } while (cursor && pageGuard < 100);
+        }
+
+        if (!cancelled) {
+          const uniqueSorted = Array.from(new Set(collected)).sort((a, b) =>
+            a.localeCompare(b, 'zh-CN')
+          );
+          setFolderPrefixOptions(uniqueSorted);
+        }
+      } catch {
+        if (!cancelled) {
+          setFolderPrefixOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setFolderPrefixLoading(false);
+        }
+      }
+    };
+
+    void loadPrefixes();
+    return () => {
+      cancelled = true;
+    };
+  }, [formFileDirId, formOpen, formType]);
+
   const handleFormClose = () => {
     setFormOpen(false);
     setEditing(null);
     setAdditionalTags([]);
     setAdditionalActors([]);
     setAdditionalCreators([]);
+    setFolderPrefixOptions([]);
+    setFolderPrefixLoading(false);
+    setSelectedQuickPrefix('');
     if (editId) navigate({ search: (prev) => ({ ...prev, editId: undefined }) });
   };
 
@@ -368,14 +445,46 @@ function StrategiesPage() {
             ))}
           </TextField>
           {formType === 'folder' && (
-            <TextField
-              label="文件夹路径前缀"
-              value={formFolderPath}
-              onChange={(e) => setFormFolderPath(e.target.value)}
-              placeholder="例如 actor-a/"
-              fullWidth
-              required
-            />
+            <>
+              <TextField
+                label="文件夹路径前缀"
+                value={formFolderPath}
+                onChange={(e) => setFormFolderPath(e.target.value)}
+                placeholder="例如 actor-a/"
+                fullWidth
+                required
+              />
+              <TextField
+                select
+                label="快速选择前缀"
+                value={selectedQuickPrefix}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSelectedQuickPrefix(value);
+                  if (value) {
+                    setFormFolderPath(value);
+                  }
+                }}
+                helperText={
+                  folderPrefixLoading
+                    ? '正在加载可用前缀...'
+                    : folderPrefixOptions.length > 0
+                      ? '选择后会自动填入上方前缀输入框'
+                      : '当前目录暂无可选前缀，可手动输入'
+                }
+                fullWidth
+              >
+                <MenuItem value="">手动输入</MenuItem>
+                {folderPrefixOptions.map((prefix) => {
+                  const value = prefix.endsWith('/') ? prefix : `${prefix}/`;
+                  return (
+                    <MenuItem key={prefix} value={value}>
+                      {value}
+                    </MenuItem>
+                  );
+                })}
+              </TextField>
+            </>
           )}
           {formType === 'regex' && (
             <TextField
@@ -492,3 +601,4 @@ function StrategiesPage() {
     </Box>
   );
 }
+

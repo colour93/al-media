@@ -6,6 +6,7 @@ import {
   createCreator,
   updateCreator,
   deleteCreator,
+  mergeCreators,
 } from '../api/creators';
 import type { CreatorType, CreatorPlatform } from '../api/types';
 import { useSnackbar } from './useSnackbar';
@@ -100,5 +101,22 @@ export function useCreatorDelete() {
       showMessage('删除成功');
     },
     onError: (err: Error) => showError(err?.message ?? '删除失败'),
+  });
+}
+
+export function useCreatorMerge() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: ({ targetId, sourceIds }: { targetId: number; sourceIds: number[] }) =>
+      mergeCreators(targetId, sourceIds),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['creators'] });
+      qc.invalidateQueries({ queryKey: ['bindingStrategies'] });
+      qc.invalidateQueries({ queryKey: ['videos'] });
+      showMessage(`合并完成：移除 ${result.removed} 个创作者，迁移 ${result.movedRefs} 条关联`);
+    },
+    onError: (err: Error) => showError(err?.message ?? '合并失败'),
   });
 }

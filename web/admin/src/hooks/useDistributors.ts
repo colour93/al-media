@@ -6,6 +6,7 @@ import {
   createDistributor,
   updateDistributor,
   deleteDistributor,
+  mergeDistributors,
 } from '../api/distributors';
 import { useSnackbar } from './useSnackbar';
 
@@ -77,5 +78,21 @@ export function useDistributorDelete() {
       showMessage('删除成功');
     },
     onError: (err: Error) => showError(err?.message ?? '删除失败'),
+  });
+}
+
+export function useDistributorMerge() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: ({ targetId, sourceIds }: { targetId: number; sourceIds: number[] }) =>
+      mergeDistributors(targetId, sourceIds),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['distributors'] });
+      qc.invalidateQueries({ queryKey: ['videos'] });
+      showMessage(`合并完成：移除 ${result.removed} 个发行方，迁移 ${result.movedRefs} 条关联`);
+    },
+    onError: (err: Error) => showError(err?.message ?? '合并失败'),
   });
 }

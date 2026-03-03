@@ -91,6 +91,8 @@ export function DataTable<T extends { id?: number }>({
   const [internalSearch, setInternalSearch] = useState('');
   const searchInput = searchValue !== undefined ? searchValue : internalSearch;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSearchRef = useRef<typeof onSearch>(onSearch);
+  const searchInitializedRef = useRef(false);
   const storageKey = tableId ? `${STORAGE_PREFIX}${tableId}` : null;
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const base = Object.fromEntries(columns.map((col) => [col.id, parseWidth(col.width)]));
@@ -178,14 +180,23 @@ export function DataTable<T extends { id?: number }>({
   }, [resizeActive]);
 
   useEffect(() => {
-    if (!onSearch) return;
-    const id = setTimeout(() => onSearch(searchInput.trim()), searchDebounceMs);
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
+
+  useEffect(() => {
+    if (!onSearchRef.current) return;
+    // Skip initial mount to avoid resetting page to 1 immediately.
+    if (!searchInitializedRef.current) {
+      searchInitializedRef.current = true;
+      return;
+    }
+    const id = setTimeout(() => onSearchRef.current?.(searchInput.trim()), searchDebounceMs);
     debounceRef.current = id;
     return () => {
       clearTimeout(id);
       debounceRef.current = null;
     };
-  }, [searchInput, onSearch, searchDebounceMs]);
+  }, [searchInput, searchDebounceMs]);
 
   const handleSearchChange = useCallback(
     (value: string) => {

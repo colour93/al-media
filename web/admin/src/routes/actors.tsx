@@ -13,6 +13,7 @@ import {
   useActorCreate,
   useActorUpdate,
   useActorDelete,
+  useActorMerge,
 } from '../hooks/useActors';
 import { getFileUrl } from '../api/file';
 import { useTagsList } from '../hooks/useTags';
@@ -39,6 +40,15 @@ function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
   return Array.from(map.values());
 }
 
+function parseIdList(value: string): number[] {
+  return [...new Set(
+    value
+      .split(/[,\s，]+/)
+      .map((it) => Number(it.trim()))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  )];
+}
+
 function ActorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { page, pageSize, keyword, sortBy, sortOrder, editId } = Route.useSearch();
@@ -48,12 +58,16 @@ function ActorsPage() {
   const createMut = useActorCreate();
   const updateMut = useActorUpdate();
   const deleteMut = useActorDelete();
+  const mergeMut = useActorMerge();
 
 
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Actor | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Actor | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeTargetIdInput, setMergeTargetIdInput] = useState('');
+  const [mergeSourceIdsInput, setMergeSourceIdsInput] = useState('');
   const [formName, setFormName] = useState('');
   const [formAvatarKey, setFormAvatarKey] = useState<string | null>(null);
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
@@ -177,6 +191,21 @@ function ActorsPage() {
   const total = data?.total ?? 0;
 
   const selectedTags = tags.filter((t) => formTagIds.includes(t.id));
+  const mergeTargetId = Number(mergeTargetIdInput);
+  const mergeSourceIds = useMemo(() => parseIdList(mergeSourceIdsInput), [mergeSourceIdsInput]);
+  const mergeValid =
+    Number.isInteger(mergeTargetId) &&
+    mergeTargetId > 0 &&
+    mergeSourceIds.length > 0 &&
+    !mergeSourceIds.includes(mergeTargetId);
+
+  const handleMergeSubmit = async () => {
+    if (!mergeValid) return;
+    await mergeMut.mutateAsync({ targetId: mergeTargetId, sourceIds: mergeSourceIds });
+    setMergeOpen(false);
+    setMergeTargetIdInput('');
+    setMergeSourceIdsInput('');
+  };
 
   return (
     <Box>
@@ -184,9 +213,21 @@ function ActorsPage() {
         <Typography variant="h5" fontWeight={600}>
           演员
         </Typography>
-        <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
-          新建
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setMergeTargetIdInput('');
+              setMergeSourceIdsInput('');
+              setMergeOpen(true);
+            }}
+          >
+            快速合并
+          </Button>
+          <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
+            新建
+          </Button>
+        </Box>
       </Box>
 
       <DataTable<Actor>
@@ -303,6 +344,35 @@ function ActorsPage() {
         </Box>
       </FormDialog>
 
+      <FormDialog
+        open={mergeOpen}
+        title="快速合并演员"
+        onClose={() => setMergeOpen(false)}
+        onSubmit={handleMergeSubmit}
+        loading={mergeMut.isPending}
+        submitDisabled={!mergeValid}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <TextField
+            label="目标演员 ID"
+            value={mergeTargetIdInput}
+            onChange={(e) => setMergeTargetIdInput(e.target.value)}
+            required
+            fullWidth
+            placeholder="例如 101"
+          />
+          <TextField
+            label="待合并 ID（逗号/空格分隔）"
+            value={mergeSourceIdsInput}
+            onChange={(e) => setMergeSourceIdsInput(e.target.value)}
+            required
+            fullWidth
+            placeholder="例如 102,103,104"
+            helperText="会将待合并演员的视频关联、标签、创作者关联迁移到目标 ID"
+          />
+        </Box>
+      </FormDialog>
+
       <DeleteConfirm
         open={!!deleteTarget}
         message={deleteTarget ? `确定要删除「${deleteTarget.name}」吗？` : ''}
@@ -313,3 +383,4 @@ function ActorsPage() {
     </Box>
   );
 }
+

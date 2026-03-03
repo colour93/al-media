@@ -26,6 +26,28 @@ export const distributorsRoutes = new Elysia({ prefix: "/distributors" })
     },
     { query: searchQuerySchema }
   )
+  .post(
+    "/merge",
+    async ({ body, set }) => {
+      if (!Array.isArray(body.sourceIds) || body.sourceIds.length === 0) {
+        set.status = 400;
+        return { message: "sourceIds 不能为空" };
+      }
+      const result = await distributorsService.merge(body.targetId, body.sourceIds);
+      if ("error" in result) {
+        const message = result.error ?? "合并发行方失败";
+        set.status = message.includes("不存在") ? 404 : 400;
+        return { message };
+      }
+      return result;
+    },
+    {
+      body: t.Object({
+        targetId: t.Integer(),
+        sourceIds: t.Array(t.Integer()),
+      }),
+    }
+  )
   .get(
     "/:id",
     async ({ params, set }) => {
