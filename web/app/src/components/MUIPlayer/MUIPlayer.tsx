@@ -1,6 +1,14 @@
 import { Box, Paper } from "@mui/material";
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type MouseEvent,
+  type TouchEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  Gesture,
   MediaPlayer,
   MediaPlayerInstance,
   MediaProvider,
@@ -24,6 +32,9 @@ interface MUIPlayerProps {
   onEnded?: () => void;
 }
 
+const DOUBLE_TAP_SEEK_SECONDS = 5;
+const SEEK_TOAST_DURATION_MS = 650;
+
 export function MUIPlayer({
   fullWidth,
   initialSeekSeconds,
@@ -36,6 +47,11 @@ export function MUIPlayer({
   const onEndedRef = useRef<typeof onEnded>(onEnded);
   const appliedSeekRef = useRef<number | null>(null);
   const [isPortraitVideo, setIsPortraitVideo] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  const [seekToastText, setSeekToastText] = useState<string | null>(null);
+  const seekToastTimerRef = useRef<number | null>(null);
+  const isMobileFullscreen = isFullscreen && isCoarsePointer;
 
   useEffect(() => {
     appliedSeekRef.current = null;
@@ -48,6 +64,39 @@ export function MUIPlayer({
   useEffect(() => {
     onEndedRef.current = onEnded;
   }, [onEnded]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const coarseQuery = window.matchMedia("(pointer: coarse)");
+    const updateCoarsePointer = () => {
+      setIsCoarsePointer(
+        coarseQuery.matches || window.navigator.maxTouchPoints > 0,
+      );
+    };
+
+    updateCoarsePointer();
+
+    if (typeof coarseQuery.addEventListener === "function") {
+      coarseQuery.addEventListener("change", updateCoarsePointer);
+      return () => coarseQuery.removeEventListener("change", updateCoarsePointer);
+    }
+
+    coarseQuery.addListener(updateCoarsePointer);
+    return () => coarseQuery.removeListener(updateCoarsePointer);
+  }, []);
+
+  const clearSeekToastTimer = useCallback(() => {
+    if (seekToastTimerRef.current == null) return;
+    window.clearTimeout(seekToastTimerRef.current);
+    seekToastTimerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearSeekToastTimer();
+    };
+  }, [clearSeekToastTimer]);
 
   // const syncVideoOrientation = useCallback(() => {
   //   const player = playerRef.current;
@@ -118,13 +167,68 @@ export function MUIPlayer({
     onEndedRef.current?.();
   };
 
+  const syncFullscreenState = useCallback(() => {
+    const nextFullscreen = Boolean(playerRef.current?.state.fullscreen);
+    if (!nextFullscreen) {
+      setSeekToastText(null);
+      clearSeekToastTimer();
+    }
+    setIsFullscreen((prev) =>
+      prev === nextFullscreen ? prev : nextFullscreen,
+    );
+  }, [clearSeekToastTimer]);
+
+  const showSeekToast = useCallback(
+    (text: string) => {
+      setSeekToastText(text);
+      clearSeekToastTimer();
+      seekToastTimerRef.current = window.setTimeout(() => {
+        setSeekToastText((prev) => (prev === text ? null : prev));
+      }, SEEK_TOAST_DURATION_MS);
+    },
+    [clearSeekToastTimer],
+  );
+
+  const isControlTarget = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return Boolean(
+      target.closest(
+        ".vds-controls, .vds-menu, button, [role='button'], [role='slider'], input, select, textarea",
+      ),
+    );
+  };
+
+  const handleContextMenu = (event: MouseEvent<HTMLElement>) => {
+    if (!isMobileFullscreen) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handlePlayerTouchStartCapture = (event: TouchEvent<HTMLElement>) => {
+    if (!isMobileFullscreen) return;
+    if (isControlTarget(event.target)) return;
+    event.preventDefault();
+  };
+
+  const handleSeekBackwardTrigger = () => {
+    showSeekToast(`-${DOUBLE_TAP_SEEK_SECONDS}s`);
+  };
+
+  const handleSeekForwardTrigger = () => {
+    showSeekToast(`+${DOUBLE_TAP_SEEK_SECONDS}s`);
+  };
+
   const handleCanPlay = () => {
     seekIfNeeded();
     syncVideoOrientation();
+    syncFullscreenState();
   };
 
   const handleLoadStart = () => {
     setIsPortraitVideo(false);
+    setIsFullscreen(false);
+    setSeekToastText(null);
+    clearSeekToastTimer();
   };
 
   return (
@@ -138,6 +242,38 @@ export function MUIPlayer({
         aspectRatio: "16/9",
         bgcolor: "black",
         "@media (pointer: coarse)": {
+          '& [data-media-player][data-fullscreen]': {
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+          },
+          '& [data-media-player][data-fullscreen] [data-media-provider] video':
+            {
+              pointerEvents: "none",
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              WebkitTouchCallout: "none",
+            },
+          '& [data-media-player][data-fullscreen] .mui-player-touch-gestures .vds-gesture':
+            {
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              pointerEvents: "auto !important",
+            },
+          '& [data-media-player][data-fullscreen] .mui-player-touch-gestures .vds-gesture[action="seek:-5"]':
+            {
+              width: "50%",
+              zIndex: 1,
+            },
+          '& [data-media-player][data-fullscreen] .mui-player-touch-gestures .vds-gesture[action="seek:5"]':
+            {
+              left: "unset",
+              right: 0,
+              width: "50%",
+              zIndex: 1,
+            },
           '& [data-media-player][data-fullscreen][data-orientation="portrait"][data-portrait-video="true"] [data-media-provider]':
             {
               overflow: "hidden",
@@ -167,15 +303,80 @@ export function MUIPlayer({
           onLoadStart={handleLoadStart}
           onCanPlay={handleCanPlay}
           onLoadedMetadata={syncVideoOrientation}
+          onFullscreenChange={syncFullscreenState}
           onTimeUpdate={onVdsTimeUpdate}
           onEnded={onVdsEnded}
+          onContextMenu={handleContextMenu}
+          onContextMenuCapture={handleContextMenu}
+          onTouchStartCapture={handlePlayerTouchStartCapture}
           ref={playerRef}
           src={src}
           data-portrait-video={isPortraitVideo ? "true" : undefined}
         >
-          <MediaProvider />
-          <DefaultVideoLayout icons={defaultLayoutIcons} />
+          <MediaProvider
+            mediaProps={{
+              onContextMenu: handleContextMenu,
+              onTouchStart: handlePlayerTouchStartCapture,
+              style: isMobileFullscreen
+                ? {
+                    WebkitTouchCallout: "none",
+                    WebkitUserSelect: "none",
+                    userSelect: "none",
+                  }
+                : undefined,
+            }}
+          />
+          {isMobileFullscreen ? (
+            <div className="vds-gestures mui-player-touch-gestures">
+              <Gesture
+                className="vds-gesture"
+                event="dblpointerup"
+                action={`seek:-${DOUBLE_TAP_SEEK_SECONDS}`}
+                onTrigger={handleSeekBackwardTrigger}
+              />
+              <Gesture
+                className="vds-gesture"
+                event="dblpointerup"
+                action={`seek:${DOUBLE_TAP_SEEK_SECONDS}`}
+                onTrigger={handleSeekForwardTrigger}
+              />
+            </div>
+          ) : null}
+          <DefaultVideoLayout
+            icons={defaultLayoutIcons}
+            noGestures={isMobileFullscreen}
+          />
         </MediaPlayer>
+        {isMobileFullscreen && seekToastText ? (
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 120,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <Box
+              sx={{
+                px: 2,
+                py: 1,
+                borderRadius: 999,
+                bgcolor: "rgba(0,0,0,0.58)",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 20,
+                lineHeight: 1,
+                letterSpacing: 0.2,
+                backdropFilter: "blur(2px)",
+              }}
+            >
+              {seekToastText}
+            </Box>
+          </Box>
+        ) : null}
       </Box>
     </Paper>
   );
