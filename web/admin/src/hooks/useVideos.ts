@@ -114,6 +114,7 @@ export function useVideoUpdate() {
       data: {
         title?: string;
         thumbnailKey?: string;
+        preferredVideoFileId?: number | null;
         actors?: number[];
         creators?: number[];
         distributors?: number[];

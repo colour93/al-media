@@ -1,9 +1,10 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { videoFilesTable } from "../entities/VideoFile";
 import { videoUniqueContentsTable } from "../entities/VideoUniqueContent";
+import { fileDirsTable } from "../entities/FileDir";
 import { ffmpegManager } from "./ffmpegManager";
 import { videoFileManager } from "./videoFileManager";
 import { createLogger } from "../utils/logger";
@@ -21,6 +22,20 @@ export type VideoReencodeTaskSnapshot = {
   lastError: string | null;
   lastOutputVideoFileId: number | null;
   lastOutputFileKey: string | null;
+  lastSourceVideoFileId: number | null;
+  lastSourceFileKey: string | null;
+};
+
+type EnqueueReencodeOptions = {
+  deleteSourceAfterSuccess?: boolean;
+};
+
+export type EnqueueAllReencodeResult = {
+  candidateCount: number;
+  enqueuedCount: number;
+  skippedCount: number;
+  deleteSourceAfterSuccess: boolean;
+  task: VideoReencodeTaskSnapshot;
 };
 
 class VideoReencodeManager {
@@ -49,6 +64,10 @@ class VideoReencodeManager {
 
   private lastOutputFileKey: string | null = null;
 
+  private lastSourceVideoFileId: number | null = null;
+
+  private lastSourceFileKey: string | null = null;
+
   private pendingVideoFileIds = new Set<number>();
 
   getTaskSnapshot(): VideoReencodeTaskSnapshot {
@@ -67,6 +86,8 @@ class VideoReencodeManager {
       lastError: this.lastError,
       lastOutputVideoFileId: this.lastOutputVideoFileId,
       lastOutputFileKey: this.lastOutputFileKey,
+      lastSourceVideoFileId: this.lastSourceVideoFileId,
+      lastSourceFileKey: this.lastSourceFileKey,
     };
   }
 
@@ -136,7 +157,10 @@ class VideoReencodeManager {
     throw new Error("无法分配可用的重编码输出文件名");
   }
 
-  private async processReencode(videoFileId: number): Promise<void> {
+  private async processReencode(
+    videoFileId: number,
+    options?: EnqueueReencodeOptions
+  ): Promise<void> {
     const source = await db.query.videoFilesTable.findFirst({
       where: eq(videoFilesTable.id, videoFileId),
       columns: {
@@ -147,28 +171,37 @@ class VideoReencodeManager {
         videoCodec: true,
         audioCodec: true,
       },
-      with: {
-        fileDir: { columns: { id: true, path: true } },
-      },
     });
+    if (!source) {
+      throw new Error("视频文件不存在，无法执行重编码");
+    }
+    const sourceDirPath =
+      source.fileDirId == null
+        ? null
+        : (
+          await db.query.fileDirsTable.findFirst({
+            where: eq(fileDirsTable.id, source.fileDirId),
+            columns: { path: true },
+          })
+        )?.path ?? null;
 
-    if (!source?.fileDir?.path || source.fileDirId == null) {
+    if (!sourceDirPath || source.fileDirId == null) {
       throw new Error("视频文件目录不存在，无法执行重编码");
     }
 
-    const sourceFilePath = join(source.fileDir.path, source.fileKey);
+    const sourceFilePath = join(sourceDirPath, source.fileKey);
     if (!(await this.existsPath(sourceFilePath))) {
       throw new Error("源视频文件不存在，无法执行重编码");
     }
 
-    const outputFileKey = await this.allocateOutputFileKey(source.fileDir.path, source.fileKey);
+    const outputFileKey = await this.allocateOutputFileKey(sourceDirPath, source.fileKey);
     this.running = this.running
       ? {
           ...this.running,
           outputFileKey,
         }
       : null;
-    const outputFilePath = join(source.fileDir.path, outputFileKey);
+    const outputFilePath = join(sourceDirPath, outputFileKey);
 
     const preferFaststartRemux = this.canUseFaststartRemux(source);
     this.logger.info(
@@ -193,7 +226,7 @@ class VideoReencodeManager {
     const sourceVideoIds = [...new Set(sourceVideoRows.map((row) => row.videoId))];
 
     await videoFileManager.processFile(
-      { id: source.fileDirId, path: source.fileDir.path },
+      { id: source.fileDirId, path: sourceDirPath },
       outputFileKey,
       { force: true, skipAutoVideoBind: true }
     );
@@ -208,6 +241,11 @@ class VideoReencodeManager {
     if (!outputVideoFile) {
       throw new Error("重编码完成后未找到输出文件索引记录");
     }
+
+    await db
+      .update(videoFilesTable)
+      .set({ sourceVideoFileId: source.id, updatedAt: new Date() })
+      .where(eq(videoFilesTable.id, outputVideoFile.id));
 
     if (sourceVideoIds.length > 0) {
       const existingRows = await db
@@ -233,10 +271,26 @@ class VideoReencodeManager {
 
     this.lastOutputVideoFileId = outputVideoFile.id;
     this.lastOutputFileKey = outputFileKey;
+    this.lastSourceVideoFileId = source.id;
+    this.lastSourceFileKey = source.fileKey;
+
+    if (options?.deleteSourceAfterSuccess) {
+      const { videoFilesService } = await import("./videoFiles");
+      const deleted = await videoFilesService.removeFileById(source.id);
+      if ("error" in deleted) {
+        throw new Error("重编码成功但删除源文件失败：源文件不存在");
+      }
+      this.logger.info(
+        `重编码后已删除源文件: sourceVideoFileId=${source.id}, sourceFileKey=${source.fileKey}, outputVideoFileId=${outputVideoFile.id}`
+      );
+    }
     this.logger.info(`重编码完成并关联原视频: output=${outputFileKey}, outputVideoFileId=${outputVideoFile.id}`);
   }
 
-  async enqueue(videoFileId: number): Promise<VideoReencodeTaskSnapshot | { error: string }> {
+  async enqueue(
+    videoFileId: number,
+    options?: EnqueueReencodeOptions
+  ): Promise<VideoReencodeTaskSnapshot | { error: string }> {
     if (!Number.isInteger(videoFileId) || videoFileId <= 0) {
       return { error: "videoFileId 无效" };
     }
@@ -264,7 +318,7 @@ class VideoReencodeManager {
         startedAt: new Date(),
       };
       try {
-        await this.processReencode(videoFileId);
+        await this.processReencode(videoFileId, options);
         this.lastError = null;
       } catch (error) {
         this.lastError = error instanceof Error ? error.message : String(error);
@@ -283,6 +337,36 @@ class VideoReencodeManager {
     );
 
     return this.getTaskSnapshot();
+  }
+
+  async enqueueAll(options?: EnqueueReencodeOptions): Promise<EnqueueAllReencodeResult> {
+    const deleteSourceAfterSuccess = options?.deleteSourceAfterSuccess ?? false;
+    const rawCandidates = await db
+      .select({ id: videoFilesTable.id, fileKey: videoFilesTable.fileKey })
+      .from(videoFilesTable)
+      .where(isNull(videoFilesTable.sourceVideoFileId))
+      .orderBy(asc(videoFilesTable.id));
+    const webOutputFilePattern = /\.web(?:\.\d+)?\.mp4$/i;
+    const candidates = rawCandidates.filter((row) => !webOutputFilePattern.test(row.fileKey));
+
+    let enqueuedCount = 0;
+    let skippedCount = 0;
+    for (const row of candidates) {
+      const result = await this.enqueue(row.id, { deleteSourceAfterSuccess });
+      if ("error" in result) {
+        skippedCount += 1;
+      } else {
+        enqueuedCount += 1;
+      }
+    }
+
+    return {
+      candidateCount: candidates.length,
+      enqueuedCount,
+      skippedCount,
+      deleteSourceAfterSuccess,
+      task: this.getTaskSnapshot(),
+    };
   }
 }
 

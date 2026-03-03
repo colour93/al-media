@@ -6,7 +6,7 @@ const BASE = '/binding-strategies';
 
 export type CreateBindingStrategyInput = {
   type: 'folder' | 'regex';
-  fileDirId: number;
+  fileDirId?: number | null;
   folderPath?: string | null;
   filenameRegex?: string | null;
   tagIds?: number[];
@@ -18,7 +18,7 @@ export type CreateBindingStrategyInput = {
 
 export type UpdateBindingStrategyInput = {
   type?: 'folder' | 'regex';
-  fileDirId?: number;
+  fileDirId?: number | null;
   folderPath?: string | null;
   filenameRegex?: string | null;
   tagIds?: number[];

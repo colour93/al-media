@@ -8,6 +8,7 @@ import {
 import { videoFilesTable } from "../entities/VideoFile";
 import { fileDirsTable } from "../entities/FileDir";
 import type { PaginatedResult } from "../utils/pagination";
+import { parseRegexInput } from "../utils/regex";
 
 export type VideoFileIndexStrategyMode = "blacklist";
 
@@ -33,15 +34,6 @@ const INDEX_STRATEGY_SORT_KEYS = [
   "createdAt",
   "updatedAt",
 ] as const;
-
-function validateRegex(regexStr: string): boolean {
-  try {
-    new RegExp(regexStr);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function buildOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
   const col =
@@ -125,7 +117,8 @@ class VideoFileIndexStrategiesService {
     if (!regex) {
       return { error: "fileKeyRegex 不能为空" as const };
     }
-    if (!validateRegex(regex)) {
+    const parsedRegex = parseRegexInput(regex);
+    if (!parsedRegex) {
       return { error: "fileKeyRegex 不是合法的正则表达式" as const };
     }
     if (data.fileDirId != null) {
@@ -138,7 +131,7 @@ class VideoFileIndexStrategiesService {
     const values: NewVideoFileIndexStrategy = {
       mode,
       fileDirId: data.fileDirId ?? null,
-      fileKeyRegex: regex,
+      fileKeyRegex: parsedRegex.normalizedInput,
       enabled: data.enabled ?? true,
     };
     const [row] = await db.insert(videoFileIndexStrategiesTable).values(values).returning();
@@ -158,7 +151,8 @@ class VideoFileIndexStrategiesService {
     if (!regex) {
       return { error: "fileKeyRegex 不能为空" as const };
     }
-    if (!validateRegex(regex)) {
+    const parsedRegex = parseRegexInput(regex);
+    if (!parsedRegex) {
       return { error: "fileKeyRegex 不是合法的正则表达式" as const };
     }
 
@@ -172,7 +166,7 @@ class VideoFileIndexStrategiesService {
     const updateFields: Partial<NewVideoFileIndexStrategy> = {
       mode,
       fileDirId: data.fileDirId !== undefined ? data.fileDirId : undefined,
-      fileKeyRegex: regex,
+      fileKeyRegex: parsedRegex.normalizedInput,
       enabled: data.enabled ?? undefined,
     };
     const filtered = Object.fromEntries(
@@ -205,12 +199,10 @@ class VideoFileIndexStrategiesService {
 
     for (const strategy of strategies) {
       if (strategy.mode !== "blacklist") continue;
-      let matched = false;
-      try {
-        matched = new RegExp(strategy.fileKeyRegex).test(fileKey);
-      } catch {
-        matched = false;
-      }
+      const parsedRegex = parseRegexInput(strategy.fileKeyRegex);
+      if (!parsedRegex) continue;
+      parsedRegex.regex.lastIndex = 0;
+      const matched = parsedRegex.regex.test(fileKey);
       if (matched) return strategy;
     }
     return null;
@@ -220,10 +212,8 @@ class VideoFileIndexStrategiesService {
     const strategy = await this.findById(id);
     if (!strategy) return { error: "策略不存在" };
 
-    let regex: RegExp;
-    try {
-      regex = new RegExp(strategy.fileKeyRegex);
-    } catch {
+    const parsedRegex = parseRegexInput(strategy.fileKeyRegex);
+    if (!parsedRegex) {
       return { error: "策略正则无效" };
     }
 
@@ -236,7 +226,12 @@ class VideoFileIndexStrategiesService {
           .select({ id: videoFilesTable.id, fileKey: videoFilesTable.fileKey })
           .from(videoFilesTable)
           .where(eq(videoFilesTable.fileDirId, strategy.fileDirId));
-    const matchedIds = candidates.filter((row) => regex.test(row.fileKey)).map((row) => row.id);
+    const matchedIds = candidates
+      .filter((row) => {
+        parsedRegex.regex.lastIndex = 0;
+        return parsedRegex.regex.test(row.fileKey);
+      })
+      .map((row) => row.id);
     if (matchedIds.length === 0) {
       return { strategyId: id, removed: 0, fileIds: [] };
     }

@@ -54,7 +54,8 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         set.status = 404;
         return { message: "视频不存在" };
       }
-      return item;
+      const associatedVideoFiles = await videosService.listAssociatedVideoFiles(id);
+      return { ...item, associatedVideoFiles };
     },
     { params: t.Object({ id: t.String() }) }
   )
@@ -107,6 +108,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       if (
         !body.title &&
         body.thumbnailKey === undefined &&
+        body.preferredVideoFileId === undefined &&
         body.actors === undefined &&
         body.creators === undefined &&
         body.distributors === undefined &&
@@ -130,6 +132,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       const result = await videosService.update(id, {
         title: body.title ?? undefined,
         thumbnailKey: body.thumbnailKey ?? undefined,
+        preferredVideoFileId: body.preferredVideoFileId,
         actors: body.actors,
         creators: body.creators,
         distributors: body.distributors,
@@ -150,6 +153,7 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
       body: t.Object({
         title: t.Optional(t.String({ minLength: 1 })),
         thumbnailKey: t.Optional(t.String()),
+        preferredVideoFileId: t.Optional(t.Nullable(t.Integer())),
         actors: t.Optional(t.Array(t.Integer())),
         creators: t.Optional(t.Array(t.Integer())),
         distributors: t.Optional(t.Array(t.Integer())),
@@ -317,7 +321,8 @@ export const videosRoutes = new Elysia({ prefix: "/videos" })
         return { message: "视频没有关联的视频文件可供提取" };
       }
       const item = await videosService.findById(id);
-      return item!;
+      const associatedVideoFiles = await videosService.listAssociatedVideoFiles(id);
+      return { ...item!, associatedVideoFiles };
     },
     { params: t.Object({ id: t.String() }) }
   )

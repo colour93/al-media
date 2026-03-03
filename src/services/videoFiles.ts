@@ -1,4 +1,6 @@
-import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { unlink } from "node:fs/promises";
+import { join } from "node:path";
 import { db } from "../db";
 import { videoFilesTable } from "../entities/VideoFile";
 import { fileDirsTable } from "../entities/FileDir";
@@ -8,6 +10,7 @@ import { evaluateVideoWebCompatibility } from "../utils/videoWebCompatibility";
 
 const videoFileWithRelations = {
   fileDir: { columns: { id: true, path: true } },
+  sourceVideoFile: { columns: { id: true, fileKey: true } },
   videoFileUnique: {
     with: {
       videoUniqueContents: {
@@ -31,15 +34,14 @@ function buildVideoFileOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
   const col = sortBy && VIDEO_FILE_SORT_KEYS.includes(sortBy as (typeof VIDEO_FILE_SORT_KEYS)[number])
     ? sortBy
     : "id";
-  const isAsc = sortOrder === "asc";
-  return (t: typeof videoFilesTable, op: { asc: (c: unknown) => unknown; desc: (c: unknown) => unknown }) =>
-    isAsc ? [op.asc(t[col as keyof typeof t])] : [op.desc(t[col as keyof typeof t])];
+  return { col, isAsc: sortOrder === "asc" };
 }
 
 function toVideoFileResponse(
   item: {
     videoFileUnique?: { videoUniqueContents?: Array<{ video: unknown }> };
-    fileDir?: { path?: string };
+    fileDir?: { path?: string } | null;
+    sourceVideoFile?: { id: number; fileKey: string } | null;
   } & Record<string, unknown> | null | undefined
 ) {
   if (!item) return null;
@@ -128,6 +130,12 @@ type FolderChildrenCacheValue = {
   value: { items: Array<{ fileDirId: number; path: string; name: string }>; nextCursor: string | null };
 };
 
+export type VideoFileDuplicateGroup = {
+  uniqueId: string;
+  fileCount: number;
+  files: unknown[];
+};
+
 const FOLDER_CHILDREN_CACHE_TTL_MS = 15_000;
 
 class VideoFilesService {
@@ -148,11 +156,29 @@ class VideoFilesService {
   ): Promise<PaginatedResult<unknown>> {
     const filterConditions = buildVideoFileFilterConditions(options);
     const where = filterConditions.length > 0 ? and(...filterConditions) : undefined;
-    const orderByFn = buildVideoFileOrderBy(sortBy, sortOrder);
+    const { col, isAsc } = buildVideoFileOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videoFilesTable.findMany({
         where,
-        orderBy: orderByFn as Parameters<typeof db.query.videoFilesTable.findMany>[0]["orderBy"],
+        orderBy: (t, op) => {
+          const sort = isAsc ? op.asc : op.desc;
+          switch (col) {
+            case "fileKey":
+              return [sort(t.fileKey)];
+            case "uniqueId":
+              return [sort(t.uniqueId)];
+            case "fileSize":
+              return [sort(t.fileSize)];
+            case "videoDuration":
+              return [sort(t.videoDuration)];
+            case "createdAt":
+              return [sort(t.createdAt)];
+            case "updatedAt":
+              return [sort(t.updatedAt)];
+            default:
+              return [sort(t.id)];
+          }
+        },
         limit: pageSize,
         offset,
         with: videoFileWithRelations,
@@ -195,11 +221,29 @@ class VideoFilesService {
     const filterConditions = buildVideoFileFilterConditions(options);
     const condition =
       filterConditions.length > 0 ? and(keywordCondition, ...filterConditions) : keywordCondition;
-    const orderByFn = buildVideoFileOrderBy(sortBy, sortOrder);
+    const { col, isAsc } = buildVideoFileOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videoFilesTable.findMany({
         where: condition,
-        orderBy: orderByFn as Parameters<typeof db.query.videoFilesTable.findMany>[0]["orderBy"],
+        orderBy: (t, op) => {
+          const sort = isAsc ? op.asc : op.desc;
+          switch (col) {
+            case "fileKey":
+              return [sort(t.fileKey)];
+            case "uniqueId":
+              return [sort(t.uniqueId)];
+            case "fileSize":
+              return [sort(t.fileSize)];
+            case "videoDuration":
+              return [sort(t.videoDuration)];
+            case "createdAt":
+              return [sort(t.createdAt)];
+            case "updatedAt":
+              return [sort(t.updatedAt)];
+            default:
+              return [sort(t.id)];
+          }
+        },
         limit: pageSize,
         offset,
         with: videoFileWithRelations,
@@ -221,6 +265,183 @@ class VideoFilesService {
     return db.query.videoFilesTable.findFirst({
       where: eq(videoFilesTable.id, id),
     });
+  }
+
+  private async unlinkFileSafe(path: string): Promise<{ removedFromDisk: boolean; diskMissing: boolean }> {
+    try {
+      await unlink(path);
+      return { removedFromDisk: true, diskMissing: false };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === "ENOENT") {
+        return { removedFromDisk: false, diskMissing: true };
+      }
+      throw error;
+    }
+  }
+
+  async removeFileById(
+    id: number
+  ): Promise<
+    | {
+      item: { id: number; fileKey: string; uniqueId: string };
+      removedFromDisk: boolean;
+      diskMissing: boolean;
+    }
+    | { error: "视频文件不存在" }
+  > {
+    const target = await db.query.videoFilesTable.findFirst({
+      where: eq(videoFilesTable.id, id),
+      columns: {
+        id: true,
+        fileDirId: true,
+        fileKey: true,
+        uniqueId: true,
+      },
+    });
+    if (!target) {
+      return { error: "视频文件不存在" };
+    }
+
+    let removedFromDisk = false;
+    let diskMissing = true;
+    const fileDirPath =
+      target.fileDirId == null
+        ? null
+        : (
+          await db.query.fileDirsTable.findFirst({
+            where: eq(fileDirsTable.id, target.fileDirId),
+            columns: { path: true },
+          })
+        )?.path ?? null;
+    if (fileDirPath) {
+      const unlinkResult = await this.unlinkFileSafe(join(fileDirPath, target.fileKey));
+      removedFromDisk = unlinkResult.removedFromDisk;
+      diskMissing = unlinkResult.diskMissing;
+    }
+
+    const deletedRows = await db
+      .delete(videoFilesTable)
+      .where(eq(videoFilesTable.id, id))
+      .returning({
+        id: videoFilesTable.id,
+        fileKey: videoFilesTable.fileKey,
+        uniqueId: videoFilesTable.uniqueId,
+      });
+    const deleted = deletedRows[0] ?? {
+      id: target.id,
+      fileKey: target.fileKey,
+      uniqueId: target.uniqueId,
+    };
+    this.folderChildrenCache.clear();
+    return {
+      item: deleted,
+      removedFromDisk,
+      diskMissing,
+    };
+  }
+
+  async removeReencodeSourceByOutputId(
+    outputVideoFileId: number
+  ): Promise<
+    | {
+      outputVideoFileId: number;
+      sourceVideoFileId: number;
+      sourceFileKey: string;
+      removedFromDisk: boolean;
+      diskMissing: boolean;
+    }
+    | {
+      error: "输出视频文件不存在" | "该文件没有可删除的转码源文件" | "转码源文件不存在";
+    }
+  > {
+    const output = await db.query.videoFilesTable.findFirst({
+      where: eq(videoFilesTable.id, outputVideoFileId),
+      columns: {
+        id: true,
+        sourceVideoFileId: true,
+      },
+    });
+    if (!output) {
+      return { error: "输出视频文件不存在" };
+    }
+    if (!output.sourceVideoFileId) {
+      return { error: "该文件没有可删除的转码源文件" };
+    }
+
+    const deleted = await this.removeFileById(output.sourceVideoFileId);
+    if ("error" in deleted) {
+      return { error: "转码源文件不存在" };
+    }
+
+    return {
+      outputVideoFileId: output.id,
+      sourceVideoFileId: deleted.item.id,
+      sourceFileKey: deleted.item.fileKey,
+      removedFromDisk: deleted.removedFromDisk,
+      diskMissing: deleted.diskMissing,
+    };
+  }
+
+  async findDuplicateGroupsPaginated(
+    page: number,
+    pageSize: number,
+    offset: number
+  ): Promise<PaginatedResult<VideoFileDuplicateGroup>> {
+    const [groupRows, totalRows] = await Promise.all([
+      db
+        .select({
+          uniqueId: videoFilesTable.uniqueId,
+          fileCount: sql<number>`count(*)`,
+        })
+        .from(videoFilesTable)
+        .groupBy(videoFilesTable.uniqueId)
+        .having(sql`count(*) > 1`)
+        .orderBy(desc(sql`count(*)`), asc(videoFilesTable.uniqueId))
+        .limit(pageSize)
+        .offset(offset),
+      db.execute<{ total: number }>(sql`
+        select count(*)::int as total
+        from (
+          select ${videoFilesTable.uniqueId}
+          from ${videoFilesTable}
+          group by ${videoFilesTable.uniqueId}
+          having count(*) > 1
+        ) as duplicate_groups
+      `),
+    ]);
+
+    const total = Number(totalRows.rows[0]?.total ?? 0);
+    if (groupRows.length === 0) {
+      return { page, pageSize, total, items: [] };
+    }
+
+    const uniqueIds = groupRows.map((row) => row.uniqueId);
+    const files = await db.query.videoFilesTable.findMany({
+      where: inArray(videoFilesTable.uniqueId, uniqueIds),
+      with: videoFileWithRelations,
+      orderBy: (t, { asc }) => [asc(t.uniqueId), asc(t.id)],
+    });
+
+    const filesByUniqueId = new Map<string, unknown[]>();
+    for (const file of files) {
+      const response = toVideoFileResponse(file);
+      if (!response) continue;
+      const uniqueIdValue = (response as Record<string, unknown>).uniqueId;
+      if (typeof uniqueIdValue !== "string" || !uniqueIdValue) continue;
+      const key = uniqueIdValue;
+      const bucket = filesByUniqueId.get(key) ?? [];
+      bucket.push(response);
+      filesByUniqueId.set(key, bucket);
+    }
+
+    const items = groupRows.map((row) => ({
+      uniqueId: row.uniqueId,
+      fileCount: Number(row.fileCount),
+      files: filesByUniqueId.get(row.uniqueId) ?? [],
+    }));
+
+    return { page, pageSize, total, items };
   }
 
   async listFolderChildren(

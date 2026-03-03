@@ -6,9 +6,7 @@ import { fileDirsTable } from "./FileDir";
 export const bindingStrategiesTable = pgTable("binding_strategies", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   type: varchar("type", { length: 20 }).notNull(), // 'folder' | 'regex'
-  fileDirId: integer("file_dir_id")
-    .notNull()
-    .references(() => fileDirsTable.id, { onDelete: "cascade" }),
+  fileDirId: integer("file_dir_id").references(() => fileDirsTable.id, { onDelete: "cascade" }),
   folderPath: varchar("folder_path"),
   filenameRegex: varchar("filename_regex"),
   tagIds: integer("tag_ids")

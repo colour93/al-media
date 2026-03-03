@@ -166,7 +166,9 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
   .post(
     "/reencode",
     async ({ body, set }) => {
-      const result = await videoReencodeManager.enqueue(body.videoFileId);
+      const result = await videoReencodeManager.enqueue(body.videoFileId, {
+        deleteSourceAfterSuccess: body.deleteSourceAfterSuccess ?? false,
+      });
       if ("error" in result) {
         set.status = 400;
         return { message: result.error };
@@ -176,6 +178,20 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
     {
       body: t.Object({
         videoFileId: t.Integer(),
+        deleteSourceAfterSuccess: t.Optional(t.Boolean()),
+      }),
+    }
+  )
+  .post(
+    "/reencode/all",
+    async ({ body }) => {
+      return videoReencodeManager.enqueueAll({
+        deleteSourceAfterSuccess: body.deleteSourceAfterSuccess ?? false,
+      });
+    },
+    {
+      body: t.Object({
+        deleteSourceAfterSuccess: t.Optional(t.Boolean()),
       }),
     }
   )
@@ -350,6 +366,19 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
     { params: t.Object({ id: t.String() }) }
   )
   .get(
+    "/duplicates",
+    async ({ query, set }) => {
+      const pagination = parsePagination(query, set);
+      if (!pagination) return { message: "分页参数无效" };
+      return videoFilesService.findDuplicateGroupsPaginated(
+        pagination.page,
+        pagination.pageSize,
+        pagination.offset
+      );
+    },
+    { query: paginationQuerySchema }
+  )
+  .get(
     "/:id",
     async ({ params, set }) => {
       const id = Number(params.id);
@@ -363,6 +392,54 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
         return { message: "视频文件不存在" };
       }
       return item;
+    },
+    { params: t.Object({ id: t.String() }) }
+  )
+  .delete(
+    "/:id/reencode-source",
+    async ({ params, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      try {
+        const result = await videoFilesService.removeReencodeSourceByOutputId(id);
+        if ("error" in result) {
+          if (result.error === "输出视频文件不存在" || result.error === "转码源文件不存在") {
+            set.status = 404;
+          } else {
+            set.status = 400;
+          }
+          return { message: result.error };
+        }
+        return result;
+      } catch (error) {
+        set.status = 500;
+        return { message: error instanceof Error ? error.message : "删除转码源文件失败" };
+      }
+    },
+    { params: t.Object({ id: t.String() }) }
+  )
+  .delete(
+    "/:id",
+    async ({ params, set }) => {
+      const id = Number(params.id);
+      if (!Number.isInteger(id)) {
+        set.status = 400;
+        return { message: "ID 无效" };
+      }
+      try {
+        const result = await videoFilesService.removeFileById(id);
+        if ("error" in result) {
+          set.status = 404;
+          return { message: result.error };
+        }
+        return result;
+      } catch (error) {
+        set.status = 500;
+        return { message: error instanceof Error ? error.message : "删除视频文件失败" };
+      }
     },
     { params: t.Object({ id: t.String() }) }
   );

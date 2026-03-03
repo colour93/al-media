@@ -1,6 +1,5 @@
 import { relations } from "drizzle-orm";
-import { bigint, boolean, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
-import { videosTable } from "./Video";
+import { AnyPgColumn, bigint, boolean, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 import { fileDirsTable } from "./FileDir";
 import { videoFileUniquesTable } from "./VideoFileUnique";
 
@@ -8,6 +7,9 @@ export const videoFilesTable = pgTable("video_files", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   // videoId: integer().references(() => videosTable.id, { onDelete: "set null" }),
   fileDirId: integer().references(() => fileDirsTable.id, { onDelete: "cascade" }),
+  sourceVideoFileId: integer("source_video_file_id").references((): AnyPgColumn => videoFilesTable.id, {
+    onDelete: "set null",
+  }),
   fileKey: varchar().notNull(),
   uniqueId: varchar().notNull().references(() => videoFileUniquesTable.uniqueId, {
     onDelete: 'cascade'
@@ -24,7 +26,7 @@ export const videoFilesTable = pgTable("video_files", {
   updatedAt: timestamp().notNull().defaultNow(),
 });
 
-export const videoFileRelations = relations(videoFilesTable, ({ one }) => ({
+export const videoFileRelations = relations(videoFilesTable, ({ one, many }) => ({
   // video: one(videosTable, {
   //   fields: [videoFilesTable.videoId],
   //   references: [videosTable.id],
@@ -36,6 +38,14 @@ export const videoFileRelations = relations(videoFilesTable, ({ one }) => ({
   videoFileUnique: one(videoFileUniquesTable, {
     fields: [videoFilesTable.uniqueId],
     references: [videoFileUniquesTable.uniqueId],
+  }),
+  sourceVideoFile: one(videoFilesTable, {
+    fields: [videoFilesTable.sourceVideoFileId],
+    references: [videoFilesTable.id],
+    relationName: "video_file_source",
+  }),
+  reencodedVideoFiles: many(videoFilesTable, {
+    relationName: "video_file_source",
   }),
 }));
 

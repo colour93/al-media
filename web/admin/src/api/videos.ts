@@ -10,6 +10,17 @@ export interface VideoDetail extends Video {
   creators?: { id: number; name: string }[];
   distributors?: { id: number; name: string }[];
   tags?: { id: number; name: string }[];
+  associatedVideoFiles?: Array<{
+    id: number;
+    fileDirId: number | null;
+    fileDirPath: string | null;
+    fileKey: string;
+    uniqueId: string;
+    fileSize: number;
+    videoDuration: number;
+    sourceVideoFileId: number | null;
+    isPreferred: boolean;
+  }>;
   videoFileUrl?: string | null;
   /** 关联 VideoFile 的 fileKey，用于手动提取信息参考 */
   videoFileKey?: string | null;
@@ -62,6 +73,7 @@ export async function updateVideo(
   data: {
     title?: string;
     thumbnailKey?: string;
+    preferredVideoFileId?: number | null;
     actors?: number[];
     creators?: number[];
     distributors?: number[];

@@ -1,10 +1,11 @@
-import { eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { VideoFile } from "../entities/VideoFile";
 import { videosTable } from "../entities/Video";
 import { basename } from "node:path";
 import { videoUniqueContentsTable } from "../entities/VideoUniqueContent";
 import { videoFilesTable } from "../entities/VideoFile";
+import { fileDirsTable } from "../entities/FileDir";
 import { videoActorsTable } from "../entities/VideoActor";
 import { videoCreatorsTable } from "../entities/VideoCreator";
 import { videoDistributorsTable } from "../entities/VideoDistributor";
@@ -39,6 +40,7 @@ export type CreateVideoInput = {
 export type UpdateVideoInput = {
   title?: string;
   thumbnailKey?: string | null;
+  preferredVideoFileId?: number | null;
   actors?: number[];
   creators?: number[];
   distributors?: number[];
@@ -109,7 +111,6 @@ function toVideoResponse(item: {
   videoDistributors: Array<{ distributor: unknown }>;
   videoTags: Array<{ tag: unknown }>;
 } & Record<string, unknown>) {
-  if (!item) return null;
   const { videoActors, videoCreators, videoDistributors, videoTags, ...video } = item;
   const directTags = videoTags.map((it) => it.tag).filter((tag) => tag != null);
   const actorTags = videoActors.flatMap((va) =>
@@ -138,9 +139,13 @@ function buildVideoOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
   const col = sortBy && VIDEO_SORT_KEYS.includes(sortBy as (typeof VIDEO_SORT_KEYS)[number])
     ? sortBy
     : "id";
-  const isAsc = sortOrder === "asc";
-  return (t: typeof videosTable, op: { asc: (c: unknown) => unknown; desc: (c: unknown) => unknown }) =>
-    isAsc ? [op.asc(t[col as keyof typeof t])] : [op.desc(t[col as keyof typeof t])];
+  return { col, isAsc: sortOrder === "asc" };
+}
+
+function collectNumericVideoIds(rows: unknown[]): number[] {
+  return rows
+    .map((row) => Number((row as Record<string, unknown>)?.id))
+    .filter((id): id is number => Number.isInteger(id) && id > 0);
 }
 
 export type InferVideoInfoResult = {
@@ -330,6 +335,7 @@ class VideosService {
     >
   ) {
     return shapedVideos.map((s) => {
+      const videoShape = (s as Record<string, unknown>) ?? {};
       const videoId = (s as { id: number }).id;
       const meta = metaMap.get(videoId);
       const videoFileInfo = videoFileInfoMap.get(videoId) ?? null;
@@ -340,7 +346,7 @@ class VideosService {
         mp4MoovBeforeMdat: videoFileInfo?.mp4MoovBeforeMdat ?? null,
       });
       return {
-        ...s,
+        ...videoShape,
         ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
         ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
         playCount: meta?.playCount ?? 0,
@@ -479,10 +485,22 @@ class VideosService {
     sortBy?: string,
     sortOrder?: "asc" | "desc"
   ): Promise<PaginatedResult<unknown>> {
-    const orderByFn = buildVideoOrderBy(sortBy, sortOrder);
+    const { col, isAsc } = buildVideoOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videosTable.findMany({
-        orderBy: orderByFn as Parameters<typeof db.query.videosTable.findMany>[0]["orderBy"],
+        orderBy: (t, op) => {
+          const sort = isAsc ? op.asc : op.desc;
+          switch (col) {
+            case "title":
+              return [sort(t.title)];
+            case "createdAt":
+              return [sort(t.createdAt)];
+            case "updatedAt":
+              return [sort(t.updatedAt)];
+            default:
+              return [sort(t.id)];
+          }
+        },
         limit: pageSize,
         offset,
         with: videoWithRelations,
@@ -490,7 +508,7 @@ class VideosService {
       db.$count(videosTable),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const videoIds = collectNumericVideoIds(shaped);
     const [metaMap, videoFileInfoMap] = await Promise.all([
       this.getVideoFileMetaMap(videoIds),
       this.getVideoFileInfoMapForVideos(videoIds),
@@ -515,11 +533,23 @@ class VideosService {
       /^\d+$/.test(numericKeyword) && Number.isSafeInteger(Number(numericKeyword)) && Number(numericKeyword) > 0
         ? eq(videosTable.id, Number(numericKeyword))
         : ilike(videosTable.title, `%${keywordTrimmed}%`);
-    const orderByFn = buildVideoOrderBy(sortBy, sortOrder);
+    const { col, isAsc } = buildVideoOrderBy(sortBy, sortOrder);
     const [items, total] = await Promise.all([
       db.query.videosTable.findMany({
         where: condition,
-        orderBy: orderByFn as Parameters<typeof db.query.videosTable.findMany>[0]["orderBy"],
+        orderBy: (t, op) => {
+          const sort = isAsc ? op.asc : op.desc;
+          switch (col) {
+            case "title":
+              return [sort(t.title)];
+            case "createdAt":
+              return [sort(t.createdAt)];
+            case "updatedAt":
+              return [sort(t.updatedAt)];
+            default:
+              return [sort(t.id)];
+          }
+        },
         limit: pageSize,
         offset,
         with: videoWithRelations,
@@ -527,7 +557,7 @@ class VideosService {
       db.$count(videosTable, condition),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const videoIds = collectNumericVideoIds(shaped);
     const [metaMap, videoFileInfoMap] = await Promise.all([
       this.getVideoFileMetaMap(videoIds),
       this.getVideoFileInfoMapForVideos(videoIds),
@@ -601,7 +631,7 @@ class VideosService {
       with: videoWithRelations,
     });
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const videoIds = collectNumericVideoIds(shaped);
     const [metaMap, videoFileInfoMap] = await Promise.all([
       this.getVideoFileMetaMap(videoIds),
       this.getVideoFileInfoMapForVideos(videoIds),
@@ -616,7 +646,7 @@ class VideosService {
       with: videoWithRelations,
     });
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const videoIds = collectNumericVideoIds(shaped);
     const [metaMap, videoFileInfoMap] = await Promise.all([
       this.getVideoFileMetaMap(videoIds),
       this.getVideoFileInfoMapForVideos(videoIds),
@@ -635,7 +665,7 @@ class VideosService {
       db.$count(videosTable),
     ]);
     const shaped = (items as Parameters<typeof toVideoResponse>[0][]).map((it) => toVideoResponse(it));
-    const videoIds = shaped.map((s) => (s as { id: number }).id);
+    const videoIds = collectNumericVideoIds(shaped);
     const [metaMap, videoFileInfoMap] = await Promise.all([
       this.getVideoFileMetaMap(videoIds),
       this.getVideoFileInfoMapForVideos(videoIds),
@@ -746,19 +776,16 @@ class VideosService {
     seekSec?: number,
     options?: { replaceExisting?: boolean }
   ): Promise<{ thumbnailKey: string } | { error: string }> {
-    const content = await db.query.videoUniqueContentsTable.findFirst({
-      where: eq(videoUniqueContentsTable.videoId, videoId),
-      columns: { uniqueId: true },
-    });
-    if (!content) return { error: "视频没有关联的文件" };
+    const videoFileInfo = await this.getVideoFileInfoForVideo(videoId);
+    if (!videoFileInfo) return { error: "视频没有关联的文件" };
     const videoFile = await db.query.videoFilesTable.findFirst({
-      where: eq(videoFilesTable.uniqueId, content.uniqueId),
-      columns: { id: true, videoDuration: true },
+      where: eq(videoFilesTable.id, videoFileInfo.id),
+      columns: { id: true, uniqueId: true, videoDuration: true },
     });
     if (!videoFile) return { error: "视频文件记录不存在" };
     const path = await videoFileManager.getVideoFilePath(videoFile.id);
     if (!path) return { error: "无法获取视频文件路径" };
-    const thumbnailKey = `${content.uniqueId}.jpg`;
+    const thumbnailKey = `${videoFile.uniqueId}.jpg`;
     const replaceExisting = options?.replaceExisting ?? false;
     if (!replaceExisting && fileManager.exists(thumbnailKey, FileCategory.Thumbnails)) {
       await db
@@ -778,6 +805,80 @@ class VideosService {
       .set({ thumbnailKey, updatedAt: new Date() })
       .where(eq(videosTable.id, videoId));
     return { thumbnailKey };
+  }
+
+  async listAssociatedVideoFiles(videoId: number): Promise<Array<{
+    id: number;
+    fileDirId: number | null;
+    fileDirPath: string | null;
+    fileKey: string;
+    uniqueId: string;
+    fileSize: number;
+    videoDuration: number;
+    sourceVideoFileId: number | null;
+    isPreferred: boolean;
+  }>> {
+    const video = await db.query.videosTable.findFirst({
+      where: eq(videosTable.id, videoId),
+      columns: { preferredVideoFileId: true },
+    });
+    if (!video) return [];
+
+    const rows = await db
+      .select({
+        id: videoFilesTable.id,
+        fileDirId: videoFilesTable.fileDirId,
+        fileDirPath: fileDirsTable.path,
+        fileKey: videoFilesTable.fileKey,
+        uniqueId: videoFilesTable.uniqueId,
+        fileSize: videoFilesTable.fileSize,
+        videoDuration: videoFilesTable.videoDuration,
+        sourceVideoFileId: videoFilesTable.sourceVideoFileId,
+      })
+      .from(videoUniqueContentsTable)
+      .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
+      .leftJoin(fileDirsTable, eq(fileDirsTable.id, videoFilesTable.fileDirId))
+      .where(eq(videoUniqueContentsTable.videoId, videoId))
+      .orderBy(videoFilesTable.id);
+
+    const deduped = new Map<number, {
+      id: number;
+      fileDirId: number | null;
+      fileDirPath: string | null;
+      fileKey: string;
+      uniqueId: string;
+      fileSize: number;
+      videoDuration: number;
+      sourceVideoFileId: number | null;
+      isPreferred: boolean;
+    }>();
+
+    for (const row of rows) {
+      if (deduped.has(row.id)) continue;
+      deduped.set(row.id, {
+        id: row.id,
+        fileDirId: row.fileDirId,
+        fileDirPath: row.fileDirPath ?? null,
+        fileKey: row.fileKey,
+        uniqueId: row.uniqueId,
+        fileSize: Number(row.fileSize),
+        videoDuration: Number(row.videoDuration),
+        sourceVideoFileId: row.sourceVideoFileId ?? null,
+        isPreferred: video.preferredVideoFileId === row.id,
+      });
+    }
+
+    return Array.from(deduped.values());
+  }
+
+  private async isVideoFileLinkedToVideo(videoId: number, videoFileId: number): Promise<boolean> {
+    const rows = await db
+      .select({ id: videoFilesTable.id })
+      .from(videoUniqueContentsTable)
+      .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
+      .where(and(eq(videoUniqueContentsTable.videoId, videoId), eq(videoFilesTable.id, videoFileId)))
+      .limit(1);
+    return !!rows[0];
   }
 
   /** 获取视频关联的 video file id 和 fileKey（通过 video_unique_contents） */
@@ -814,6 +915,7 @@ class VideosService {
     const rows = await db
       .select({
         videoId: videoUniqueContentsTable.videoId,
+        preferredVideoFileId: videosTable.preferredVideoFileId,
         id: videoFilesTable.id,
         fileKey: videoFilesTable.fileKey,
         videoCodec: videoFilesTable.videoCodec,
@@ -821,9 +923,41 @@ class VideosService {
         mp4MoovBeforeMdat: videoFilesTable.mp4MoovBeforeMdat,
       })
       .from(videoUniqueContentsTable)
+      .innerJoin(videosTable, eq(videosTable.id, videoUniqueContentsTable.videoId))
       .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
       .where(inArray(videoUniqueContentsTable.videoId, uniqueIds))
       .orderBy(videoFilesTable.id);
+
+    const grouped = new Map<
+      number,
+      {
+        preferredVideoFileId: number | null;
+        candidates: Array<{
+          id: number;
+          fileKey: string;
+          videoCodec: string | null;
+          audioCodec: string | null;
+          mp4MoovBeforeMdat: boolean | null;
+        }>;
+      }
+    >();
+
+    for (const row of rows) {
+      const bucket = grouped.get(row.videoId) ?? {
+        preferredVideoFileId: row.preferredVideoFileId ?? null,
+        candidates: [],
+      };
+      bucket.preferredVideoFileId = row.preferredVideoFileId ?? bucket.preferredVideoFileId;
+      bucket.candidates.push({
+        id: row.id,
+        fileKey: row.fileKey,
+        videoCodec: row.videoCodec,
+        audioCodec: row.audioCodec,
+        mp4MoovBeforeMdat: row.mp4MoovBeforeMdat,
+      });
+      grouped.set(row.videoId, bucket);
+    }
+
     const map = new Map<
       number,
       {
@@ -834,14 +968,23 @@ class VideosService {
         mp4MoovBeforeMdat: boolean | null;
       }
     >();
-    for (const row of rows) {
-      if (!map.has(row.videoId)) {
-        map.set(row.videoId, {
-          id: row.id,
-          fileKey: row.fileKey,
-          videoCodec: row.videoCodec,
-          audioCodec: row.audioCodec,
-          mp4MoovBeforeMdat: row.mp4MoovBeforeMdat,
+    for (const [videoId, bucket] of grouped.entries()) {
+      const preferred =
+        bucket.preferredVideoFileId == null
+          ? null
+          : bucket.candidates.find((it) => it.id === bucket.preferredVideoFileId) ?? null;
+      const fallback = bucket.candidates.reduce<typeof preferred>((min, current) => {
+        if (!min) return current;
+        return current.id < min.id ? current : min;
+      }, null);
+      const selected = preferred ?? fallback;
+      if (selected) {
+        map.set(videoId, {
+          id: selected.id,
+          fileKey: selected.fileKey,
+          videoCodec: selected.videoCodec,
+          audioCodec: selected.audioCodec,
+          mp4MoovBeforeMdat: selected.mp4MoovBeforeMdat,
         });
       }
     }
@@ -853,16 +996,8 @@ class VideosService {
     videoIds: number[]
   ): Promise<Map<number, { videoDuration?: number; fileSize?: number; playCount: number }>> {
     if (videoIds.length === 0) return new Map();
-    const [rows, playCountRows] = await Promise.all([
-      db
-        .select({
-          videoId: videoUniqueContentsTable.videoId,
-          videoDuration: videoFilesTable.videoDuration,
-          fileSize: videoFilesTable.fileSize,
-        })
-        .from(videoUniqueContentsTable)
-        .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
-        .where(inArray(videoUniqueContentsTable.videoId, videoIds)),
+    const [videoFileInfoMap, playCountRows] = await Promise.all([
+      this.getVideoFileInfoMapForVideos(videoIds),
       db
         .select({
           videoId: userVideoHistoriesTable.videoId,
@@ -872,16 +1007,44 @@ class VideosService {
         .where(inArray(userVideoHistoriesTable.videoId, videoIds))
         .groupBy(userVideoHistoriesTable.videoId),
     ]);
+
+    const selectedVideoFileIds = Array.from(
+      new Set(Array.from(videoFileInfoMap.values()).map((it) => it.id))
+    );
+    const selectedFileRows =
+      selectedVideoFileIds.length > 0
+        ? await db
+          .select({
+            id: videoFilesTable.id,
+            videoDuration: videoFilesTable.videoDuration,
+            fileSize: videoFilesTable.fileSize,
+          })
+          .from(videoFilesTable)
+          .where(inArray(videoFilesTable.id, selectedVideoFileIds))
+        : [];
+    const selectedFileMetaMap = new Map(
+      selectedFileRows.map((row) => [
+        row.id,
+        {
+          videoDuration: Number(row.videoDuration),
+          fileSize: Number(row.fileSize),
+        },
+      ])
+    );
+
     const map = new Map<number, { videoDuration?: number; fileSize?: number; playCount: number }>();
     for (const videoId of videoIds) {
       map.set(videoId, { playCount: 0 });
     }
-    for (const row of rows) {
-      const prev = map.get(row.videoId) ?? { playCount: 0 };
-      map.set(row.videoId, {
+
+    for (const [videoId, videoFileInfo] of videoFileInfoMap.entries()) {
+      const prev = map.get(videoId) ?? { playCount: 0 };
+      const meta = selectedFileMetaMap.get(videoFileInfo.id);
+      if (!meta) continue;
+      map.set(videoId, {
         ...prev,
-        videoDuration: Number(row.videoDuration),
-        fileSize: Number(row.fileSize),
+        videoDuration: meta.videoDuration,
+        fileSize: meta.fileSize,
       });
     }
     for (const row of playCountRows) {
@@ -947,6 +1110,11 @@ class VideosService {
     const creatorIds = data.creators === undefined ? undefined : normalizeIds(data.creators);
     const distributorIds = data.distributors === undefined ? undefined : normalizeIds(data.distributors);
     const tagIds = data.tags === undefined ? undefined : normalizeIds(data.tags);
+    const exists = await db.query.videosTable.findFirst({
+      where: eq(videosTable.id, id),
+      columns: { id: true },
+    });
+    if (!exists) return { error: "视频不存在" as const };
 
     const checks = await Promise.all([
       actorIds === undefined ? true : actorsService.idsExist(actorIds),
@@ -960,6 +1128,7 @@ class VideosService {
     if (!checks[3]) return { error: "标签 ID 不存在" as const };
 
     let videoNotFound = false;
+    let invalidPreferredVideoFile = false;
     const item = await db.transaction(async (tx) => {
       const updateFields: Record<string, unknown> = {
         title: data.title ?? undefined,
@@ -970,6 +1139,16 @@ class VideosService {
       if (data.isBanner !== undefined) updateFields.isBanner = data.isBanner;
       if (data.bannerOrder !== undefined) updateFields.bannerOrder = data.bannerOrder;
       if (data.recommendedOrder !== undefined) updateFields.recommendedOrder = data.recommendedOrder;
+      if (data.preferredVideoFileId !== undefined) {
+        if (data.preferredVideoFileId != null) {
+          const linked = await this.isVideoFileLinkedToVideo(id, data.preferredVideoFileId);
+          if (!linked) {
+            invalidPreferredVideoFile = true;
+            return null;
+          }
+        }
+        updateFields.preferredVideoFileId = data.preferredVideoFileId;
+      }
 
       const rows = await tx
         .update(videosTable)
@@ -1014,6 +1193,7 @@ class VideosService {
 
     if (!item) {
       if (videoNotFound) return { error: "视频不存在" as const };
+      if (invalidPreferredVideoFile) return { error: "优先关联文件不属于该视频" as const };
       return { error: "更新视频失败" as const };
     }
     return { item: toVideoResponse(item as Parameters<typeof toVideoResponse>[0]) };
@@ -1225,6 +1405,14 @@ class VideosService {
         with: videoWithRelations,
       });
       if (video) {
+        const videoRecord = video as typeof video & { id: number; preferredVideoFileId?: number | null };
+        if (videoRecord.preferredVideoFileId == null) {
+          await db
+            .update(videosTable)
+            .set({ preferredVideoFileId: videoFile.id, updatedAt: new Date() })
+            .where(eq(videosTable.id, videoRecord.id));
+          videoRecord.preferredVideoFileId = videoFile.id;
+        }
         return toVideoResponse(video as Parameters<typeof toVideoResponse>[0]);
       }
     }
@@ -1245,11 +1433,21 @@ class VideosService {
         with: { video: true },
       });
       if (existing?.video) {
+        const existingVideo = existing.video as typeof existing.video & {
+          id: number;
+          preferredVideoFileId?: number | null;
+        };
+        if (existingVideo.preferredVideoFileId == null) {
+          await tx
+            .update(videosTable)
+            .set({ preferredVideoFileId: videoFile.id, updatedAt: new Date() })
+            .where(eq(videosTable.id, existingVideo.id));
+        }
         if (inferredInfo) {
-          await this.applyInferredInfo(tx, existing.video.id, inferredInfo);
+          await this.applyInferredInfo(tx, existingVideo.id, inferredInfo);
         }
         return tx.query.videosTable.findFirst({
-          where: eq(videosTable.id, existing.video.id),
+          where: eq(videosTable.id, existingVideo.id),
           with: videoWithRelations,
         });
       }
@@ -1259,6 +1457,7 @@ class VideosService {
       const [created] = await tx.insert(videosTable).values({
         title: inferredInfo?.title ?? basename(videoFile.fileKey),
         thumbnailKey,
+        preferredVideoFileId: videoFile.id,
       }).returning();
       await tx.insert(videoUniqueContentsTable).values({
         videoId: created.id,
@@ -1288,22 +1487,13 @@ class VideosService {
   }
 
   async reExtractVideoInfo(videoId: number): Promise<{ video: Awaited<ReturnType<typeof db.query.videosTable.findFirst>>; info: InferVideoInfoResult } | null> {
-    const content = await db.query.videoUniqueContentsTable.findFirst({
-      where: eq(videoUniqueContentsTable.videoId, videoId),
-      columns: { uniqueId: true },
-    });
-    if (!content) return null;
+    const videoFileInfo = await this.getVideoFileInfoForVideo(videoId);
+    if (!videoFileInfo) return null;
 
-    const videoFile = await db.query.videoFilesTable.findFirst({
-      where: eq(videoFilesTable.uniqueId, content.uniqueId),
-      columns: { fileKey: true },
-    });
-    if (!videoFile) return null;
-
-    const info = await this.inferVideoInfo(basename(videoFile.fileKey), {
+    const info = await this.inferVideoInfo(basename(videoFileInfo.fileKey), {
       source: "video-re-extract",
-      target: `video:${videoId}:${videoFile.fileKey}`,
-      fileKey: videoFile.fileKey,
+      target: `video:${videoId}:${videoFileInfo.fileKey}`,
+      fileKey: videoFileInfo.fileKey,
     });
     const video = await db.transaction(async (tx) => {
       await this.applyInferredInfo(tx, videoId, info);

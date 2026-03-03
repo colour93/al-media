@@ -3,6 +3,8 @@ import type { PaginatedResult } from './types';
 import type {
   ApplyVideoFileIndexStrategyResult,
   CursorListResult,
+  EnqueueAllVideoReencodeResult,
+  VideoFileDuplicateGroup,
   VideoFile,
   VideoFileFolderItem,
   VideoFileIndexStrategy,
@@ -60,6 +62,24 @@ export async function fetchVideoFile(id: number): Promise<VideoFile> {
   return get<VideoFile>(`${BASE}/${id}`);
 }
 
+export async function deleteVideoFile(id: number): Promise<{
+  item: { id: number; fileKey: string; uniqueId: string };
+  removedFromDisk: boolean;
+  diskMissing: boolean;
+}> {
+  return del(`${BASE}/${id}`);
+}
+
+export async function deleteVideoFileReencodeSource(outputVideoFileId: number): Promise<{
+  outputVideoFileId: number;
+  sourceVideoFileId: number;
+  sourceFileKey: string;
+  removedFromDisk: boolean;
+  diskMissing: boolean;
+}> {
+  return del(`${BASE}/${outputVideoFileId}/reencode-source`);
+}
+
 export async function fetchVideoFileFolderChildren(params: {
   fileDirId: number;
   folderPath?: string;
@@ -100,6 +120,19 @@ export async function fetchVideoReencodeTask(): Promise<VideoReencodeTask> {
 
 export async function enqueueVideoReencodeTask(videoFileId: number): Promise<VideoReencodeTask> {
   return post<VideoReencodeTask>(`${BASE}/reencode`, { videoFileId });
+}
+
+export async function enqueueAllVideoReencodeTasks(data?: {
+  deleteSourceAfterSuccess?: boolean;
+}): Promise<EnqueueAllVideoReencodeResult> {
+  return post<EnqueueAllVideoReencodeResult>(`${BASE}/reencode/all`, data ?? {});
+}
+
+export async function fetchVideoFileDuplicateGroups(
+  page: number,
+  pageSize: number
+): Promise<PaginatedResult<VideoFileDuplicateGroup>> {
+  return get<PaginatedResult<VideoFileDuplicateGroup>>(`${BASE}/duplicates`, { page, pageSize });
 }
 
 export async function startVideoFileScanTask(data: {

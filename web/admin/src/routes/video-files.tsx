@@ -38,6 +38,7 @@ import {
   Trash2,
   BrainCircuit,
   Repeat2,
+  Copy,
 } from 'lucide-react';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { VideoPreviewDialog } from '../components/VideoPreviewDialog/VideoPreviewDialog';
@@ -56,6 +57,11 @@ import {
   useApplyVideoFileIndexStrategy,
   useVideoReencodeTask,
   useEnqueueVideoReencodeTask,
+  useEnqueueAllVideoReencodeTasks,
+  useDeleteVideoFile,
+  useDeleteVideoFileReencodeSource,
+  useVideoFileDuplicateGroups,
+  useVideoFilesIncompatibleCount,
 } from '../hooks/useVideoFiles';
 import {
   useVideoInsertFromFile,
@@ -81,7 +87,13 @@ import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete
 import type { VideoFile } from '../api/types';
 import type { Actor } from '../api/types';
 import type { Creator } from '../api/types';
-import type { FileDir, Tag, TagType, VideoFileIndexStrategy } from '../api/types';
+import type {
+  FileDir,
+  Tag,
+  TagType,
+  VideoFileDuplicateGroup,
+  VideoFileIndexStrategy,
+} from '../api/types';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
 import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
 import {
@@ -227,8 +239,12 @@ function FolderLazyView(props: {
   onGoToVideoEdit: (videoId: number) => void;
   onPreviewVideoFile: (videoFileId: number) => void;
   onEnqueueReencode: (videoFileId: number) => void;
+  onDeleteVideoFile: (row: VideoFile) => void;
+  onDeleteReencodeSource: (row: VideoFile) => void;
   createVideoLoading: boolean;
   reencodeSubmitting: boolean;
+  deleteFileSubmitting: boolean;
+  deleteReencodeSourceSubmitting: boolean;
 }) {
   const {
     enabledFileDirs,
@@ -238,8 +254,12 @@ function FolderLazyView(props: {
     onGoToVideoEdit,
     onPreviewVideoFile,
     onEnqueueReencode,
+    onDeleteVideoFile,
+    onDeleteReencodeSource,
     createVideoLoading,
     reencodeSubmitting,
+    deleteFileSubmitting,
+    deleteReencodeSourceSubmitting,
   } = props;
 
   const rootNodes = useMemo<FolderNode[]>(
@@ -579,6 +599,28 @@ function FolderLazyView(props: {
                   >
                     重编码
                   </Button>
+                  {row.file.sourceVideoFileId ? (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="warning"
+                      startIcon={<Trash2 size={14} />}
+                      onClick={() => onDeleteReencodeSource(row.file)}
+                      disabled={deleteReencodeSourceSubmitting}
+                    >
+                      删源文件
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    startIcon={<Trash2 size={14} />}
+                    onClick={() => onDeleteVideoFile(row.file)}
+                    disabled={deleteFileSubmitting}
+                  >
+                    删除文件
+                  </Button>
                   {row.file.video ? (
                     <Button
                       size="small"
@@ -653,6 +695,9 @@ function VideoFilesPage() {
   const { data: scanTask } = useVideoFileScanTask();
   const { data: reencodeTask } = useVideoReencodeTask();
   const enqueueReencodeMut = useEnqueueVideoReencodeTask();
+  const enqueueAllReencodeMut = useEnqueueAllVideoReencodeTasks();
+  const deleteFileMut = useDeleteVideoFile();
+  const deleteReencodeSourceMut = useDeleteVideoFileReencodeSource();
   const { data: inferTask } = useVideoInferTask();
   const pauseInferTaskMut = usePauseVideoInferTask();
   const resumeInferTaskMut = useResumeVideoInferTask();
@@ -681,6 +726,12 @@ function VideoFilesPage() {
   }, [keyword]);
   const [previewVideoFileId, setPreviewVideoFileId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'folder'>('table');
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
+  const [duplicatesPage, setDuplicatesPage] = useState(1);
+  const duplicatesPageSize = 20;
+  const [deleteFileTarget, setDeleteFileTarget] = useState<VideoFile | null>(null);
+  const [deleteReencodeSourceTarget, setDeleteReencodeSourceTarget] = useState<VideoFile | null>(null);
+  const [reencodeAllDeleteConfirmOpen, setReencodeAllDeleteConfirmOpen] = useState(false);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<number>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchTagIds, setBatchTagIds] = useState<number[]>([]);
@@ -701,10 +752,23 @@ function VideoFilesPage() {
 
   const items = useMemo(() => (data?.items ?? []) as VideoFile[], [data?.items]);
   const total = data?.total ?? 0;
-  const incompatibleCount = useMemo(
-    () => items.filter((item) => item.webCompatible === false).length,
-    [items]
+  const { data: incompatibleSummaryData } = useVideoFilesIncompatibleCount(
+    keyword,
+    { hasVideo, fileDirId },
+    sortBy,
+    sortOrder,
+    webCompatibility === 'all'
   );
+  const incompatibleCount = useMemo(() => {
+    if (webCompatibility === 'compatible') return 0;
+    if (webCompatibility === 'incompatible') return total;
+    return incompatibleSummaryData?.total ?? 0;
+  }, [incompatibleSummaryData?.total, total, webCompatibility]);
+  const { data: duplicateGroupsData, isLoading: duplicateGroupsLoading } =
+    useVideoFileDuplicateGroups(duplicatesPage, duplicatesPageSize, duplicatesOpen);
+  const duplicateGroups = (duplicateGroupsData?.items ?? []) as VideoFileDuplicateGroup[];
+  const duplicateTotal = duplicateGroupsData?.total ?? 0;
+  const duplicateTotalPages = Math.max(1, Math.ceil(duplicateTotal / duplicatesPageSize));
   const fileDirs = useMemo(() => (fileDirsData?.items ?? []) as FileDir[], [fileDirsData?.items]);
   const enabledFileDirs = useMemo(() => fileDirs.filter((dir) => dir.enabled), [fileDirs]);
   const actors = useMemo(
@@ -910,6 +974,69 @@ function VideoFilesPage() {
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
+  const handleRunGlobalDuplicateCheck = () => {
+    setDuplicatesOpen(true);
+    setDuplicatesPage(1);
+  };
+
+  const handleViewDuplicateInTable = (uniqueId: string) => {
+    const keywordValue = uniqueId.trim();
+    setViewMode('table');
+    setSearchDraft(keywordValue);
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        keyword: keywordValue,
+        page: 1,
+      }),
+    });
+  };
+
+  const handleEnqueueAllReencodeAndDeleteSource = async () => {
+    await enqueueAllReencodeMut.mutateAsync({ deleteSourceAfterSuccess: true });
+    setReencodeAllDeleteConfirmOpen(false);
+  };
+
+  const handleDeleteVideoFileConfirm = async () => {
+    if (!deleteFileTarget) return;
+    await deleteFileMut.mutateAsync(deleteFileTarget.id);
+    setDeleteFileTarget(null);
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      next.delete(deleteFileTarget.id);
+      return next;
+    });
+  };
+
+  const handleDeleteReencodeSourceConfirm = async () => {
+    if (!deleteReencodeSourceTarget) return;
+    await deleteReencodeSourceMut.mutateAsync(deleteReencodeSourceTarget.id);
+    setDeleteReencodeSourceTarget(null);
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      if (deleteReencodeSourceTarget.sourceVideoFileId) {
+        next.delete(deleteReencodeSourceTarget.sourceVideoFileId);
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteLastReencodeSource = async () => {
+    const outputVideoFileId = reencodeTask?.lastOutputVideoFileId;
+    if (!outputVideoFileId) return;
+    const cached = itemMap.get(outputVideoFileId);
+    if (cached) {
+      setDeleteReencodeSourceTarget(cached);
+      return;
+    }
+    try {
+      const latestOutput = await fetchVideoFile(outputVideoFileId);
+      setDeleteReencodeSourceTarget(latestOutput);
+    } catch {
+      /* 错误由全局 API 错误处理 */
+    }
+  };
+
   const handleDeleteIndexStrategyConfirm = async () => {
     if (!indexStrategyDeleteTarget) return;
     await deleteIndexStrategyMut.mutateAsync(indexStrategyDeleteTarget.id);
@@ -1001,6 +1128,13 @@ function VideoFilesPage() {
     },
     { id: 'uniqueId', label: '唯一ID', render: (r) => r.uniqueId },
     {
+      id: 'sourceVideoFile',
+      label: '转码源',
+      width: 280,
+      render: (r) =>
+        r.sourceVideoFile ? `#${r.sourceVideoFile.id} · ${r.sourceVideoFile.fileKey}` : '-',
+    },
+    {
       id: 'video',
       label: '关联视频',
       width: 180,
@@ -1052,6 +1186,28 @@ function VideoFilesPage() {
       >
         重编码
       </Button>
+      {row.sourceVideoFileId ? (
+        <Button
+          size="small"
+          variant="outlined"
+          color="warning"
+          startIcon={<Trash2 size={14} />}
+          onClick={() => setDeleteReencodeSourceTarget(row)}
+          disabled={deleteReencodeSourceMut.isPending}
+        >
+          删源文件
+        </Button>
+      ) : null}
+      <Button
+        size="small"
+        variant="outlined"
+        color="error"
+        startIcon={<Trash2 size={14} />}
+        onClick={() => setDeleteFileTarget(row)}
+        disabled={deleteFileMut.isPending}
+      >
+        删除文件
+      </Button>
       {row.video ? (
         <Button
           size="small"
@@ -1099,6 +1255,13 @@ function VideoFilesPage() {
           </ToggleButtonGroup>
           <Button
             variant="outlined"
+            startIcon={<Copy size={18} />}
+            onClick={handleRunGlobalDuplicateCheck}
+          >
+            一键全局查重
+          </Button>
+          <Button
+            variant="outlined"
             startIcon={<Tags size={18} />}
             disabled={selectedFileIds.size === 0}
             onClick={() => {
@@ -1119,6 +1282,106 @@ function VideoFilesPage() {
         <Alert severity="warning" sx={{ mb: 2 }}>
           当前列表中有 {incompatibleCount} 个文件可能不适合 Web 直接播放，建议执行重编码。
         </Alert>
+      )}
+
+      {duplicatesOpen && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, gap: 2 }}>
+            <Box>
+              <Typography variant="h6">全局重复视频（按 uniqueId）</Typography>
+              <Typography variant="body2" color="text.secondary">
+                自动查找 `video_files` 中 `uniqueId` 重复的数据，并按重复数降序展示。
+              </Typography>
+            </Box>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => {
+                setDuplicatesPage(1);
+                queryClient.invalidateQueries({ queryKey: ['videoFiles', 'duplicateGroups'] });
+              }}
+              disabled={duplicateGroupsLoading}
+            >
+              刷新
+            </Button>
+          </Box>
+          {duplicateGroupsLoading ? (
+            <Box sx={{ py: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">
+                正在生成重复列表...
+              </Typography>
+            </Box>
+          ) : duplicateGroups.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              未发现重复视频文件。
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {duplicateGroups.map((group) => (
+                <Box
+                  key={group.uniqueId}
+                  sx={{
+                    border: 1,
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    p: 1.25,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: 1,
+                      mb: 0.75,
+                    }}
+                  >
+                    <Typography variant="body2">
+                      <strong>{group.uniqueId}</strong> · 重复文件数 {group.fileCount}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => handleViewDuplicateInTable(group.uniqueId)}
+                    >
+                      在主表中查看
+                    </Button>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    {group.files.map((file) => (
+                      <Typography key={file.id} variant="caption" color="text.secondary">
+                        #{file.id} · {file.fileKey}
+                      </Typography>
+                    ))}
+                  </Box>
+                </Box>
+              ))}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
+                <Typography variant="caption" color="text.secondary">
+                  第 {duplicatesPage} / {duplicateTotalPages} 页 · 共 {duplicateTotal} 组
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    size="small"
+                    disabled={duplicatesPage <= 1}
+                    onClick={() => setDuplicatesPage((prev) => Math.max(1, prev - 1))}
+                  >
+                    上一页
+                  </Button>
+                  <Button
+                    size="small"
+                    disabled={duplicatesPage >= duplicateTotalPages}
+                    onClick={() => setDuplicatesPage((prev) => Math.min(duplicateTotalPages, prev + 1))}
+                  >
+                    下一页
+                  </Button>
+                </Box>
+              </Box>
+            </Box>
+          )}
+        </Paper>
       )}
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
@@ -1275,6 +1538,26 @@ function VideoFilesPage() {
               color={reencodeTaskProcessing ? 'warning' : 'default'}
               label={formatReencodeTaskStatus(reencodeTask?.status)}
             />
+            <Button
+              variant="contained"
+              color="warning"
+              size="small"
+              startIcon={<Repeat2 size={14} />}
+              onClick={() => setReencodeAllDeleteConfirmOpen(true)}
+              disabled={enqueueAllReencodeMut.isPending}
+            >
+              全部重编码并删源文件
+            </Button>
+            <Button
+              variant="outlined"
+              color="warning"
+              size="small"
+              startIcon={<Trash2 size={14} />}
+              onClick={handleDeleteLastReencodeSource}
+              disabled={!reencodeTask?.lastOutputVideoFileId || deleteReencodeSourceMut.isPending}
+            >
+              一键删最近源文件
+            </Button>
           </Box>
         </Box>
         <Typography variant="caption" color="text.secondary">
@@ -1283,6 +1566,7 @@ function VideoFilesPage() {
             : reencodeTask?.lastOutputFileKey
               ? `最近输出：${reencodeTask.lastOutputFileKey}`
               : '可在文件行操作中点击“重编码”加入队列'}
+          {reencodeTask?.lastSourceFileKey ? ` · 最近源文件：${reencodeTask.lastSourceFileKey}` : ''}
           {reencodeTask?.lastError ? ` · 最近错误：${reencodeTask.lastError}` : ''}
         </Typography>
       </Paper>
@@ -1386,8 +1670,12 @@ function VideoFilesPage() {
             onGoToVideoEdit={handleGoToVideoEdit}
             onPreviewVideoFile={(videoFileId) => setPreviewVideoFileId(videoFileId)}
             onEnqueueReencode={handleEnqueueReencode}
+            onDeleteVideoFile={(row) => setDeleteFileTarget(row)}
+            onDeleteReencodeSource={(row) => setDeleteReencodeSourceTarget(row)}
             createVideoLoading={insertMut.isPending}
             reencodeSubmitting={enqueueReencodeMut.isPending}
+            deleteFileSubmitting={deleteFileMut.isPending}
+            deleteReencodeSourceSubmitting={deleteReencodeSourceMut.isPending}
           />
         </Box>
       ) : (
@@ -1672,7 +1960,8 @@ function VideoFilesPage() {
             label="文件 Key 正则"
             value={indexStrategyRegex}
             onChange={(e) => setIndexStrategyRegex(e.target.value)}
-            placeholder="例如 ^tmp/|\\.part$"
+            placeholder="例如 /nightalks\\.com/i 或 ^tmp/|\\.part$"
+            helperText="支持 JS 正则字面量写法（/pattern/flags）"
             required
             fullWidth
             autoFocus
@@ -1703,6 +1992,38 @@ function VideoFilesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <DeleteConfirm
+        open={!!deleteFileTarget}
+        message={
+          deleteFileTarget
+            ? `确定要删除文件「${deleteFileTarget.fileKey}」吗？将同时删除真实文件和索引记录。`
+            : ''
+        }
+        onClose={() => setDeleteFileTarget(null)}
+        onConfirm={handleDeleteVideoFileConfirm}
+        loading={deleteFileMut.isPending}
+      />
+
+      <DeleteConfirm
+        open={!!deleteReencodeSourceTarget}
+        message={
+          deleteReencodeSourceTarget
+            ? `确定要删除源文件「${deleteReencodeSourceTarget.sourceVideoFile?.fileKey ?? `#${deleteReencodeSourceTarget.sourceVideoFileId}` }」吗？`
+            : ''
+        }
+        onClose={() => setDeleteReencodeSourceTarget(null)}
+        onConfirm={handleDeleteReencodeSourceConfirm}
+        loading={deleteReencodeSourceMut.isPending}
+      />
+
+      <DeleteConfirm
+        open={reencodeAllDeleteConfirmOpen}
+        message="确定要将全部源视频加入重编码队列并在完成后删除源文件吗？为避免重复转码，已自动排除已有 sourceVideoFileId 的输出文件。"
+        onClose={() => setReencodeAllDeleteConfirmOpen(false)}
+        onConfirm={handleEnqueueAllReencodeAndDeleteSource}
+        loading={enqueueAllReencodeMut.isPending}
+      />
 
       <DeleteConfirm
         open={!!indexStrategyDeleteTarget}

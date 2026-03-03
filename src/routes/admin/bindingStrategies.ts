@@ -9,7 +9,7 @@ const bindingStrategyTypeSchema = t.Union([t.Literal("folder"), t.Literal("regex
 
 const createBodySchema = t.Object({
   type: bindingStrategyTypeSchema,
-  fileDirId: t.Number(),
+  fileDirId: t.Optional(t.Nullable(t.Number())),
   folderPath: t.Optional(t.Nullable(t.String())),
   filenameRegex: t.Optional(t.Nullable(t.String())),
   tagIds: t.Optional(t.Array(t.Number())),
@@ -21,7 +21,7 @@ const createBodySchema = t.Object({
 
 const updateBodySchema = t.Object({
   type: t.Optional(bindingStrategyTypeSchema),
-  fileDirId: t.Optional(t.Number()),
+  fileDirId: t.Optional(t.Nullable(t.Number())),
   folderPath: t.Optional(t.Nullable(t.String())),
   filenameRegex: t.Optional(t.Nullable(t.String())),
   tagIds: t.Optional(t.Array(t.Number())),

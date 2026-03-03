@@ -35,7 +35,7 @@ export type BindingStrategyType = 'folder' | 'regex';
 export interface BindingStrategy {
   id: number;
   type: BindingStrategyType;
-  fileDirId: number;
+  fileDirId: number | null;
   folderPath: string | null;
   filenameRegex: string | null;
   tagIds: number[];
@@ -87,6 +87,7 @@ export interface Distributor {
 export interface VideoFile {
   id: number;
   fileDirId: number;
+  sourceVideoFileId?: number | null;
   fileKey: string;
   uniqueId: string;
   fileSize: number;
@@ -104,6 +105,7 @@ export interface VideoFile {
   updatedAt: string;
   video?: Video | null;
   fileDir?: { id: number; path: string } | null;
+  sourceVideoFile?: { id: number; fileKey: string } | null;
   /** 缩略图 key，优先使用关联视频的，否则为 {uniqueId}.jpg */
   thumbnailKey?: string | null;
 }
@@ -154,6 +156,16 @@ export interface VideoReencodeTask {
   lastError: string | null;
   lastOutputVideoFileId: number | null;
   lastOutputFileKey: string | null;
+  lastSourceVideoFileId: number | null;
+  lastSourceFileKey: string | null;
+}
+
+export interface EnqueueAllVideoReencodeResult {
+  candidateCount: number;
+  enqueuedCount: number;
+  skippedCount: number;
+  deleteSourceAfterSuccess: boolean;
+  task: VideoReencodeTask;
 }
 
 export type VideoFileIndexStrategyMode = 'blacklist';
@@ -186,10 +198,17 @@ export interface VideoFileFolderItem {
   name: string;
 }
 
+export interface VideoFileDuplicateGroup {
+  uniqueId: string;
+  fileCount: number;
+  files: VideoFile[];
+}
+
 export interface Video {
   id: number;
   title: string;
   thumbnailKey: string | null;
+  preferredVideoFileId?: number | null;
   isFeatured?: boolean;
   isBanner?: boolean;
   bannerOrder?: number | null;

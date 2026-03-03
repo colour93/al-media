@@ -3,8 +3,12 @@ import {
   applyVideoFileIndexStrategy,
   cancelVideoFileScanTask,
   createVideoFileIndexStrategy,
+  deleteVideoFile,
+  deleteVideoFileReencodeSource,
   deleteVideoFileIndexStrategy,
   enqueueVideoReencodeTask,
+  enqueueAllVideoReencodeTasks,
+  fetchVideoFileDuplicateGroups,
   fetchVideoFilesList,
   fetchVideoFileIndexStrategiesList,
   fetchVideoReencodeTask,
@@ -38,6 +42,8 @@ const KEYS = {
   detail: (id: number) => ['videoFiles', 'detail', id] as const,
   scanTask: () => ['videoFiles', 'scanTask'] as const,
   reencodeTask: () => ['videoFiles', 'reencodeTask'] as const,
+  duplicateGroups: (page: number, pageSize: number) =>
+    ['videoFiles', 'duplicateGroups', page, pageSize] as const,
   indexStrategies: (
     page: number,
     pageSize: number,
@@ -65,6 +71,35 @@ export function useVideoFilesList(
       keyword.trim()
         ? searchVideoFiles(keyword.trim(), page, pageSize, filters, sortBy, sortOrder)
         : fetchVideoFilesList(page, pageSize, filters, sortBy, sortOrder),
+  });
+}
+
+export function useVideoFilesIncompatibleCount(
+  keyword: string,
+  filters: Omit<VideoFileListFilters, 'webCompatibility'>,
+  sortBy?: string,
+  sortOrder?: 'asc' | 'desc',
+  enabled = true
+) {
+  const mergedFilters: VideoFileListFilters = {
+    ...filters,
+    webCompatibility: 'incompatible',
+  };
+  return useQuery({
+    queryKey: [
+      'videoFiles',
+      'incompatibleCount',
+      keyword.trim(),
+      filters.hasVideo ?? 'all',
+      filters.fileDirId ?? null,
+      sortBy,
+      sortOrder,
+    ],
+    queryFn: () =>
+      keyword.trim()
+        ? searchVideoFiles(keyword.trim(), 1, 1, mergedFilters, sortBy, sortOrder)
+        : fetchVideoFilesList(1, 1, mergedFilters, sortBy, sortOrder),
+    enabled,
   });
 }
 
@@ -117,6 +152,66 @@ export function useEnqueueVideoReencodeTask() {
       showMessage('已加入重编码队列');
     },
     onError: (err: Error) => showError(err?.message ?? '加入重编码队列失败'),
+  });
+}
+
+export function useEnqueueAllVideoReencodeTasks() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: (data?: { deleteSourceAfterSuccess?: boolean }) =>
+      enqueueAllVideoReencodeTasks(data),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['videoFiles'] });
+      qc.invalidateQueries({ queryKey: KEYS.reencodeTask() });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      showMessage(
+        `批量入队完成：候选 ${result.candidateCount}，入队 ${result.enqueuedCount}，跳过 ${result.skippedCount}`
+      );
+    },
+    onError: (err: Error) => showError(err?.message ?? '批量加入重编码队列失败'),
+  });
+}
+
+export function useVideoFileDuplicateGroups(page: number, pageSize: number, enabled = true) {
+  return useQuery({
+    queryKey: KEYS.duplicateGroups(page, pageSize),
+    queryFn: () => fetchVideoFileDuplicateGroups(page, pageSize),
+    enabled,
+  });
+}
+
+export function useDeleteVideoFile() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: (id: number) => deleteVideoFile(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['videoFiles'] });
+      qc.invalidateQueries({ queryKey: ['videos'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      showMessage('视频文件已删除');
+    },
+    onError: (err: Error) => showError(err?.message ?? '删除视频文件失败'),
+  });
+}
+
+export function useDeleteVideoFileReencodeSource() {
+  const qc = useQueryClient();
+  const { showError, showMessage } = useSnackbar();
+
+  return useMutation({
+    mutationFn: (outputVideoFileId: number) => deleteVideoFileReencodeSource(outputVideoFileId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['videoFiles'] });
+      qc.invalidateQueries({ queryKey: ['videos'] });
+      qc.invalidateQueries({ queryKey: KEYS.reencodeTask() });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      showMessage('转码源文件已删除');
+    },
+    onError: (err: Error) => showError(err?.message ?? '删除转码源文件失败'),
   });
 }
 

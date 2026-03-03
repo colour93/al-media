@@ -11,6 +11,9 @@ export const videosTable = pgTable("videos", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   title: varchar().notNull(),
   thumbnailKey: varchar(),
+  preferredVideoFileId: integer("preferred_video_file_id").references(() => videoFilesTable.id, {
+    onDelete: "set null",
+  }),
   isFeatured: boolean().notNull().default(false),
   isBanner: boolean().notNull().default(false),
   bannerOrder: integer(),
@@ -19,8 +22,11 @@ export const videosTable = pgTable("videos", {
   updatedAt: timestamp().notNull().defaultNow(),
 });
 
-export const videoRelations = relations(videosTable, ({ many }) => ({
-  videoFiles: many(videoFilesTable),
+export const videoRelations = relations(videosTable, ({ many, one }) => ({
+  preferredVideoFile: one(videoFilesTable, {
+    fields: [videosTable.preferredVideoFileId],
+    references: [videoFilesTable.id],
+  }),
   videoDistributors: many(videoDistributorsTable),
   videoCreators: many(videoCreatorsTable),
   videoActors: many(videoActorsTable),

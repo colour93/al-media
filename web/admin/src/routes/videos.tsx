@@ -6,6 +6,7 @@ import {
   Typography,
   Button,
   TextField,
+  MenuItem,
   Checkbox,
   Dialog,
   DialogTitle,
@@ -158,6 +159,7 @@ function VideosPage() {
   const [batchTagsSubmitting, setBatchTagsSubmitting] = useState(false);
   const [formTitle, setFormTitle] = useState('');
   const [formThumbnailKey, setFormThumbnailKey] = useState<string | null>(null);
+  const [formPreferredVideoFileId, setFormPreferredVideoFileId] = useState<number | ''>('');
   const [formActorIds, setFormActorIds] = useState<number[]>([]);
   const [formCreatorIds, setFormCreatorIds] = useState<number[]>([]);
   const [formDistributorIds, setFormDistributorIds] = useState<number[]>([]);
@@ -193,6 +195,7 @@ function VideosPage() {
     setEditing(null);
     setFormTitle('');
     setFormThumbnailKey(null);
+    setFormPreferredVideoFileId('');
     setFormActorIds([]);
     setFormCreatorIds([]);
     setFormDistributorIds([]);
@@ -216,6 +219,7 @@ function VideosPage() {
     setAdditionalTags((row.tags ?? []) as (Tag & { tagType?: TagType })[]);
     setFormTitle(row.title);
     setFormThumbnailKey(row.thumbnailKey ?? null);
+    setFormPreferredVideoFileId(row.preferredVideoFileId ?? '');
     setFormActorIds(row.actors?.map((a) => a.id) ?? []);
     setFormCreatorIds(row.creators?.map((c) => c.id) ?? []);
     setFormDistributorIds(row.distributors?.map((d) => d.id) ?? []);
@@ -239,6 +243,7 @@ function VideosPage() {
       setFormCreatorIds(videoDetail.creators?.map((c) => c.id) ?? []);
       setFormDistributorIds(videoDetail.distributors?.map((d) => d.id) ?? []);
       setFormTagIds(videoDetail.tags?.map((t) => t.id) ?? []);
+      setFormPreferredVideoFileId(videoDetail.preferredVideoFileId ?? '');
       setFormIsFeatured(videoDetail.isFeatured ?? false);
       setFormIsBanner(videoDetail.isBanner ?? false);
       setFormBannerOrder(videoDetail.bannerOrder != null ? String(videoDetail.bannerOrder) : '');
@@ -251,6 +256,7 @@ function VideosPage() {
       setEditing(videoDetail);
       setFormTitle(videoDetail.title);
       setFormThumbnailKey(videoDetail.thumbnailKey ?? null);
+      setFormPreferredVideoFileId(videoDetail.preferredVideoFileId ?? '');
       setFormOpen(true);
     }
   }, [editId, videoDetail]);
@@ -277,6 +283,7 @@ function VideosPage() {
       isBanner?: boolean;
       bannerOrder?: number | null;
       recommendedOrder?: number | null;
+      preferredVideoFileId?: number | null;
     } = {
       title: formTitle,
       thumbnailKey: formThumbnailKey ?? undefined,
@@ -290,6 +297,8 @@ function VideosPage() {
       payload.isBanner = formIsBanner;
       payload.bannerOrder = formBannerOrder === '' ? null : (Number(formBannerOrder) || null);
       payload.recommendedOrder = formRecommendedOrder === '' ? null : (Number(formRecommendedOrder) || null);
+      payload.preferredVideoFileId =
+        formPreferredVideoFileId === '' ? null : Number(formPreferredVideoFileId);
       await updateMut.mutateAsync({ id: editing.id, data: payload });
     } else {
       await createMut.mutateAsync(payload);
@@ -459,6 +468,7 @@ function VideosPage() {
   const selectedCreators = creators.filter((c) => formCreatorIds.includes(c.id));
   const selectedDistributors = distributors.filter((d) => formDistributorIds.includes(d.id));
   const selectedTags = tags.filter((t) => formTagIds.includes(t.id));
+  const associatedVideoFiles = videoDetail?.associatedVideoFiles ?? [];
 
   return (
     <Box>
@@ -550,6 +560,7 @@ function VideosPage() {
                   setFormCreatorIds(updated.creators?.map((c) => c.id) ?? formCreatorIds);
                   setFormDistributorIds(updated.distributors?.map((d) => d.id) ?? formDistributorIds);
                   setFormTagIds(updated.tags?.map((t) => t.id) ?? formTagIds);
+                  setFormPreferredVideoFileId(updated.preferredVideoFileId ?? formPreferredVideoFileId);
                 }
               } catch {
                 /* 错误已由 mutation onError 处理 */
@@ -581,6 +592,34 @@ function VideosPage() {
                   autoFocus
                   size="small"
                 />
+                {editing && (
+                  <TextField
+                    select
+                    label="优先关联文件"
+                    value={formPreferredVideoFileId}
+                    onChange={(e) =>
+                      setFormPreferredVideoFileId(
+                        e.target.value === '' ? '' : Number(e.target.value)
+                      )
+                    }
+                    helperText="用于播放、缩略图截取和重新推断时优先使用的文件"
+                    fullWidth
+                    size="small"
+                  >
+                    <MenuItem value="">自动选择（最早索引文件）</MenuItem>
+                    {associatedVideoFiles.map((file) => (
+                      <MenuItem key={file.id} value={file.id}>
+                        #{file.id} · {file.fileDirPath ? `${file.fileDirPath}/` : ''}
+                        {file.fileKey}
+                      </MenuItem>
+                    ))}
+                    {associatedVideoFiles.length === 0 && (
+                      <MenuItem value="" disabled>
+                        暂无可选文件
+                      </MenuItem>
+                    )}
+                  </TextField>
+                )}
                 {editing && videoDetail?.videoFileKey && (
                   <TextField
                     label="关联文件"

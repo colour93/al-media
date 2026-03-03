@@ -98,7 +98,7 @@ function StrategiesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BindingStrategy | null>(null);
   const [formType, setFormType] = useState<'folder' | 'regex'>('folder');
-  const [formFileDirId, setFormFileDirId] = useState<number | ''>('');
+  const [formFileDirId, setFormFileDirId] = useState<number | 'all'>('all');
   const [formFolderPath, setFormFolderPath] = useState('');
   const [formFilenameRegex, setFormFilenameRegex] = useState('');
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
@@ -139,7 +139,7 @@ function StrategiesPage() {
   const handleOpenCreate = () => {
     setEditing(null);
     setFormType('folder');
-    setFormFileDirId('');
+    setFormFileDirId('all');
     setFormFolderPath('');
     setFormFilenameRegex('');
     setFormTagIds([]);
@@ -160,7 +160,7 @@ function StrategiesPage() {
   const handleOpenEdit = (row: BindingStrategy) => {
     setEditing(row);
     setFormType(row.type);
-    setFormFileDirId(row.fileDirId);
+    setFormFileDirId(row.fileDirId ?? 'all');
     setFormFolderPath(row.folderPath ?? '');
     setFormFilenameRegex(row.filenameRegex ?? '');
     setFormTagIds(row.tagIds ?? []);
@@ -181,7 +181,7 @@ function StrategiesPage() {
   useEffect(() => {
     if (strategyDetail) {
       setFormType(strategyDetail.type);
-      setFormFileDirId(strategyDetail.fileDirId);
+      setFormFileDirId(strategyDetail.fileDirId ?? 'all');
       setFormFolderPath(strategyDetail.folderPath ?? '');
       setFormFilenameRegex(strategyDetail.filenameRegex ?? '');
       setFormTagIds(strategyDetail.tagIds ?? []);
@@ -200,7 +200,7 @@ function StrategiesPage() {
   }, [editId, strategyDetail]);
 
   useEffect(() => {
-    if (!formOpen || formType !== 'folder' || formFileDirId === '') {
+    if (!formOpen || formType !== 'folder' || formFileDirId === 'all') {
       setFolderPrefixOptions([]);
       setFolderPrefixLoading(false);
       setSelectedQuickPrefix('');
@@ -371,7 +371,7 @@ function StrategiesPage() {
   const handleFormSubmit = async () => {
     const payload = {
       type: formType,
-      fileDirId: formFileDirId as number,
+      fileDirId: formFileDirId === 'all' ? null : Number(formFileDirId),
       folderPath: formType === 'folder' ? formFolderPath.trim() || null : null,
       filenameRegex: formType === 'regex' ? formFilenameRegex.trim() || null : null,
       tagIds: formTagIds,
@@ -411,7 +411,7 @@ function StrategiesPage() {
     {
       id: 'fileDir',
       label: '目录',
-      render: (r) => (r.fileDir as { path?: string })?.path ?? `#${r.fileDirId}`,
+      render: (r) => (r.fileDir as { path?: string })?.path ?? (r.fileDirId == null ? '全部目录' : `#${r.fileDirId}`),
     },
     {
       id: 'rule',
@@ -454,8 +454,8 @@ function StrategiesPage() {
 
   const formValid =
     formType === 'folder'
-      ? formFolderPath.trim().length > 0 && formFileDirId !== ''
-      : formFilenameRegex.trim().length > 0 && formFileDirId !== '';
+      ? formFolderPath.trim().length > 0
+      : formFilenameRegex.trim().length > 0;
 
   return (
     <Box>
@@ -544,12 +544,11 @@ function StrategiesPage() {
             label="文件目录"
             value={formFileDirId}
             onChange={(e) =>
-              setFormFileDirId(e.target.value === '' ? '' : Number(e.target.value))
+              setFormFileDirId(e.target.value === 'all' ? 'all' : Number(e.target.value))
             }
             fullWidth
-            required
           >
-            <MenuItem value="">请选择</MenuItem>
+            <MenuItem value="all">全部目录</MenuItem>
             {fileDirs.map((d) => (
               <MenuItem key={d.id} value={d.id}>
                 {d.path}
@@ -603,7 +602,8 @@ function StrategiesPage() {
               label="文件名正则"
               value={formFilenameRegex}
               onChange={(e) => setFormFilenameRegex(e.target.value)}
-              placeholder="例如 .*\\.mp4$"
+              placeholder="例如 /nightalks\\.com/i 或 .*\\.mp4$"
+              helperText="支持 JS 正则字面量写法（/pattern/flags）"
               fullWidth
               required
             />

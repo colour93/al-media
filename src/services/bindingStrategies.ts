@@ -1,4 +1,4 @@
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import {
   bindingStrategiesTable,
@@ -14,10 +14,11 @@ import { creatorsService } from "./creators";
 import { distributorsService } from "./distributors";
 import { fileDirsService } from "./fileDirs";
 import type { PaginatedResult } from "../utils/pagination";
+import { parseRegexInput } from "../utils/regex";
 
 export type CreateBindingStrategyInput = {
   type: "folder" | "regex";
-  fileDirId: number;
+  fileDirId?: number | null;
   folderPath?: string | null;
   filenameRegex?: string | null;
   tagIds?: number[];
@@ -29,7 +30,7 @@ export type CreateBindingStrategyInput = {
 
 export type UpdateBindingStrategyInput = {
   type?: "folder" | "regex";
-  fileDirId?: number;
+  fileDirId?: number | null;
   folderPath?: string | null;
   filenameRegex?: string | null;
   tagIds?: number[];
@@ -38,15 +39,6 @@ export type UpdateBindingStrategyInput = {
   distributorIds?: number[];
   enabled?: boolean;
 };
-
-function validateRegex(regexStr: string): boolean {
-  try {
-    new RegExp(regexStr);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const STRATEGY_SORT_KEYS = ["id", "type", "fileDirId", "enabled", "createdAt", "updatedAt"] as const;
 
@@ -106,16 +98,19 @@ class BindingStrategiesService {
       if (!data.filenameRegex?.trim()) {
         return { error: "regex 类型策略需指定 filenameRegex" as const };
       }
-      if (!validateRegex(data.filenameRegex)) {
+      const parsedRegex = parseRegexInput(data.filenameRegex);
+      if (!parsedRegex) {
         return { error: "filenameRegex 不是合法的正则表达式" as const };
       }
     } else {
       return { error: "type 必须为 folder 或 regex" as const };
     }
 
-    const fileDir = await fileDirsService.findById(data.fileDirId);
-    if (!fileDir) {
-      return { error: "fileDirId 对应的 FileDir 不存在" as const };
+    if (data.fileDirId != null) {
+      const fileDir = await fileDirsService.findById(data.fileDirId);
+      if (!fileDir) {
+        return { error: "fileDirId 对应的 FileDir 不存在" as const };
+      }
     }
 
     const tagIds = [...new Set(data.tagIds ?? [])];
@@ -142,9 +137,12 @@ class BindingStrategiesService {
 
     const insertData: NewBindingStrategy = {
       type: data.type,
-      fileDirId: data.fileDirId,
+      fileDirId: data.fileDirId ?? null,
       folderPath: data.type === "folder" ? data.folderPath!.trim() : null,
-      filenameRegex: data.type === "regex" ? data.filenameRegex!.trim() : null,
+      filenameRegex:
+        data.type === "regex"
+          ? (parseRegexInput(data.filenameRegex!)?.normalizedInput ?? data.filenameRegex!.trim())
+          : null,
       tagIds,
       creatorIds,
       actorIds,
@@ -168,10 +166,10 @@ class BindingStrategiesService {
     if (type === "regex" && (data.filenameRegex !== undefined || !existing.filenameRegex)) {
       const fr = data.filenameRegex !== undefined ? data.filenameRegex : existing.filenameRegex;
       if (!fr?.trim()) return { error: "regex 类型策略需指定 filenameRegex" as const };
-      if (!validateRegex(fr)) return { error: "filenameRegex 不是合法的正则表达式" as const };
+      if (!parseRegexInput(fr)) return { error: "filenameRegex 不是合法的正则表达式" as const };
     }
 
-    if (data.fileDirId !== undefined) {
+    if (data.fileDirId !== undefined && data.fileDirId !== null) {
       const fileDir = await fileDirsService.findById(data.fileDirId);
       if (!fileDir) return { error: "fileDirId 对应的 FileDir 不存在" as const };
     }
@@ -201,9 +199,14 @@ class BindingStrategiesService {
 
     const updateFields: Partial<NewBindingStrategy> = {
       type: data.type ?? undefined,
-      fileDirId: data.fileDirId ?? undefined,
+      fileDirId: data.fileDirId !== undefined ? data.fileDirId : undefined,
       folderPath: data.folderPath !== undefined ? data.folderPath : undefined,
-      filenameRegex: data.filenameRegex !== undefined ? data.filenameRegex : undefined,
+      filenameRegex:
+        data.filenameRegex !== undefined
+          ? (data.filenameRegex == null
+            ? null
+            : parseRegexInput(data.filenameRegex)?.normalizedInput ?? data.filenameRegex)
+          : undefined,
       tagIds,
       creatorIds,
       actorIds,
@@ -235,19 +238,28 @@ class BindingStrategiesService {
     if (!strategy) return { error: "策略不存在" };
     if (!strategy.enabled) return { error: "策略未启用" };
 
-    const conditions = [eq(videoFilesTable.fileDirId, strategy.fileDirId)];
+    const candidateRows = strategy.fileDirId == null
+      ? await db
+        .select({ uniqueId: videoFilesTable.uniqueId, fileKey: videoFilesTable.fileKey })
+        .from(videoFilesTable)
+      : await db
+        .select({ uniqueId: videoFilesTable.uniqueId, fileKey: videoFilesTable.fileKey })
+        .from(videoFilesTable)
+        .where(eq(videoFilesTable.fileDirId, strategy.fileDirId));
+
+    let matchingFiles = candidateRows;
     if (strategy.type === "folder") {
       if (!strategy.folderPath) return { error: "folder 策略缺少 folderPath" };
-      conditions.push(like(videoFilesTable.fileKey, strategy.folderPath + "%"));
+      matchingFiles = candidateRows.filter((row) => row.fileKey.startsWith(strategy.folderPath!));
     } else {
       if (!strategy.filenameRegex) return { error: "regex 策略缺少 filenameRegex" };
-      conditions.push(sql`${videoFilesTable.fileKey} ~ ${strategy.filenameRegex}`);
+      const parsedRegex = parseRegexInput(strategy.filenameRegex);
+      if (!parsedRegex) return { error: "regex 策略正则无效" };
+      matchingFiles = candidateRows.filter((row) => {
+        parsedRegex.regex.lastIndex = 0;
+        return parsedRegex.regex.test(row.fileKey);
+      });
     }
-
-    const matchingFiles = await db
-      .select({ uniqueId: videoFilesTable.uniqueId })
-      .from(videoFilesTable)
-      .where(and(...conditions));
 
     const uniqueIds = [...new Set(matchingFiles.map((f) => f.uniqueId))];
     if (uniqueIds.length === 0) {
@@ -324,13 +336,17 @@ class BindingStrategiesService {
     videoFile: { fileDirId: number | null | undefined; fileKey: string },
     videoId: number
   ): Promise<void> {
-    if (videoFile.fileDirId == null) return;
-
     const strategies = await db.query.bindingStrategiesTable.findMany({
-      where: and(
-        eq(bindingStrategiesTable.fileDirId, videoFile.fileDirId),
-        eq(bindingStrategiesTable.enabled, true)
-      ),
+      where:
+        videoFile.fileDirId == null
+          ? and(eq(bindingStrategiesTable.enabled, true), isNull(bindingStrategiesTable.fileDirId))
+          : and(
+            eq(bindingStrategiesTable.enabled, true),
+            or(
+              eq(bindingStrategiesTable.fileDirId, videoFile.fileDirId),
+              isNull(bindingStrategiesTable.fileDirId)
+            )
+          ),
     });
 
     for (const s of strategies) {
@@ -338,11 +354,10 @@ class BindingStrategiesService {
       if (s.type === "folder" && s.folderPath) {
         matched = videoFile.fileKey.startsWith(s.folderPath);
       } else if (s.type === "regex" && s.filenameRegex) {
-        try {
-          matched = new RegExp(s.filenameRegex).test(videoFile.fileKey);
-        } catch {
-          continue;
-        }
+        const parsedRegex = parseRegexInput(s.filenameRegex);
+        if (!parsedRegex) continue;
+        parsedRegex.regex.lastIndex = 0;
+        matched = parsedRegex.regex.test(videoFile.fileKey);
       }
       if (!matched) continue;
 
