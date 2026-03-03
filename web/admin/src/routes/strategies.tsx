@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import {
   Box,
@@ -7,7 +7,6 @@ import {
   TextField,
   Switch,
   MenuItem,
-  Autocomplete,
   Chip,
 } from '@mui/material';
 import { Plus, Pencil, Trash2, Play } from 'lucide-react';
@@ -25,9 +24,13 @@ import {
 } from '../hooks/useBindingStrategies';
 import { useFileDirsList } from '../hooks/useFileDirs';
 import { useTagsList } from '../hooks/useTags';
-import { useActorsList } from '../hooks/useActors';
-import { useCreatorsList } from '../hooks/useCreators';
+import { useActorCreate, useActorsList } from '../hooks/useActors';
+import { useCreatorCreate, useCreatorsList } from '../hooks/useCreators';
+import { fetchTagsList, searchTags } from '../api/tags';
+import { fetchActorsList, searchActors } from '../api/actors';
+import { fetchCreatorsList, searchCreators } from '../api/creators';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
+import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { renderLucideIcon } from '../utils/lucideIcons';
 import { validateListSearch } from '../schemas/listSearch';
 import type { BindingStrategy, Tag, TagType, Actor, Creator, FileDir } from '../api/types';
@@ -41,6 +44,16 @@ export const Route = createFileRoute('/strategies')({
   validateSearch: validateListSearch,
   component: StrategiesPage,
 });
+
+const ENTITY_SELECTOR_PAGE_SIZE = 20;
+
+function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
+  const map = new Map<number, T>();
+  for (const item of [...base, ...extra]) {
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
 
 function formatBindingSummary(s: BindingStrategy): string {
   const parts: string[] = [];
@@ -67,6 +80,8 @@ function StrategiesPage() {
   const updateMut = useBindingStrategyUpdate();
   const deleteMut = useBindingStrategyDelete();
   const applyMut = useApplyStrategy();
+  const actorCreateMut = useActorCreate();
+  const creatorCreateMut = useCreatorCreate();
 
   const [searchDraft, setSearchDraft] = useState(keyword);
   useEffect(() => {
@@ -83,11 +98,27 @@ function StrategiesPage() {
   const [formCreatorIds, setFormCreatorIds] = useState<number[]>([]);
   const [formActorIds, setFormActorIds] = useState<number[]>([]);
   const [formEnabled, setFormEnabled] = useState(true);
+  const [additionalTags, setAdditionalTags] = useState<(Tag & { tagType?: TagType })[]>([]);
+  const [additionalActors, setAdditionalActors] = useState<Actor[]>([]);
+  const [additionalCreators, setAdditionalCreators] = useState<Creator[]>([]);
 
   const fileDirs = (fileDirsData?.items ?? []) as FileDir[];
-  const tags = (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[];
-  const actors = (actorsData?.items ?? []) as Actor[];
-  const creators = (creatorsData?.items ?? []) as Creator[];
+  const tags = useMemo(
+    () =>
+      mergeById(
+        (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[],
+        additionalTags
+      ),
+    [additionalTags, tagsData?.items]
+  );
+  const actors = useMemo(
+    () => mergeById((actorsData?.items ?? []) as Actor[], additionalActors),
+    [actorsData?.items, additionalActors]
+  );
+  const creators = useMemo(
+    () => mergeById((creatorsData?.items ?? []) as Creator[], additionalCreators),
+    [additionalCreators, creatorsData?.items]
+  );
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -99,6 +130,9 @@ function StrategiesPage() {
     setFormCreatorIds([]);
     setFormActorIds([]);
     setFormEnabled(true);
+    setAdditionalTags([]);
+    setAdditionalActors([]);
+    setAdditionalCreators([]);
     setFormOpen(true);
   };
 
@@ -112,6 +146,9 @@ function StrategiesPage() {
     setFormCreatorIds(row.creatorIds ?? []);
     setFormActorIds(row.actorIds ?? []);
     setFormEnabled(row.enabled);
+    setAdditionalTags([]);
+    setAdditionalActors([]);
+    setAdditionalCreators([]);
     setFormOpen(true);
   };
 
@@ -138,6 +175,9 @@ function StrategiesPage() {
   const handleFormClose = () => {
     setFormOpen(false);
     setEditing(null);
+    setAdditionalTags([]);
+    setAdditionalActors([]);
+    setAdditionalCreators([]);
     if (editId) navigate({ search: (prev) => ({ ...prev, editId: undefined }) });
   };
 
@@ -347,20 +387,25 @@ function StrategiesPage() {
               required
             />
           )}
-          <Autocomplete
-            multiple
+          <EntityCreateAutocomplete<Tag & { tagType?: TagType }>
+            label="标签"
+            placeholder="搜索并选择要绑定的标签"
             options={tags}
+            value={selectedTags as (Tag & { tagType?: TagType })[]}
+            onChange={setFormTagIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchTags(keyword.trim(), page, pageSize)
+                : fetchTagsList(page, pageSize)
+            }
             getOptionLabel={(t) => t.name}
-            value={selectedTags}
-            onChange={(_, v) => setFormTagIds(v.map((t) => t.id))}
-            renderOption={(props, t) => (
-              <li {...props} key={t.id}>
-                <EntityPreview
-                  entityType="tag"
-                  entity={t}
-                  inline
-                />
-              </li>
+            renderOption={(_, t) => (
+              <EntityPreview
+                entityType="tag"
+                entity={t}
+                inline
+              />
             )}
             renderTags={(value, getTagProps) =>
               value.map((t, index) => {
@@ -388,39 +433,40 @@ function StrategiesPage() {
                 );
               })
             }
-            renderInput={(params) => (
-              <TextField {...params} label="标签" placeholder="选择要绑定的标签" />
-            )}
           />
-          <Autocomplete
-            multiple
+          <EntityCreateAutocomplete<Creator>
+            label="创作者"
+            placeholder="搜索创作者，不存在可直接新建"
             options={creators}
-            getOptionLabel={(c) => c.name}
             value={selectedCreators}
-            onChange={(_, v) => setFormCreatorIds(v.map((c) => c.id))}
-            renderOption={(props, c) => (
-              <li {...props} key={c.id}>
-                <EntityPreview entityType="creator" entity={c} inline />
-              </li>
-            )}
-            renderInput={(params) => (
-              <TextField {...params} label="创作者" placeholder="选择要绑定的创作者" />
-            )}
+            onChange={setFormCreatorIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchCreators(keyword.trim(), page, pageSize)
+                : fetchCreatorsList(page, pageSize)
+            }
+            getOptionLabel={(c) => c.name}
+            renderOption={(_, c) => <EntityPreview entityType="creator" entity={c} inline />}
+            onCreate={async (name) => creatorCreateMut.mutateAsync({ name, type: 'person' })}
+            onCreated={(entity) => setAdditionalCreators((prev) => mergeById(prev, [entity]))}
           />
-          <Autocomplete
-            multiple
+          <EntityCreateAutocomplete<Actor>
+            label="演员"
+            placeholder="搜索演员，不存在可直接新建"
             options={actors}
-            getOptionLabel={(a) => a.name}
             value={selectedActors}
-            onChange={(_, v) => setFormActorIds(v.map((a) => a.id))}
-            renderOption={(props, a) => (
-              <li {...props} key={a.id}>
-                <EntityPreview entityType="actor" entity={a} inline />
-              </li>
-            )}
-            renderInput={(params) => (
-              <TextField {...params} label="演员" placeholder="选择要绑定的演员" />
-            )}
+            onChange={setFormActorIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchActors(keyword.trim(), page, pageSize)
+                : fetchActorsList(page, pageSize)
+            }
+            getOptionLabel={(a) => a.name}
+            renderOption={(_, a) => <EntityPreview entityType="actor" entity={a} inline />}
+            onCreate={async (name) => actorCreateMut.mutateAsync({ name })}
+            onCreated={(entity) => setAdditionalActors((prev) => mergeById(prev, [entity]))}
           />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Switch

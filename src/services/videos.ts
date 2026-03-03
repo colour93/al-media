@@ -974,6 +974,38 @@ class VideosService {
     );
   }
 
+  private async inferAndApplyInfoForVideo(
+    videoId: number,
+    videoFile: Pick<VideoFile, "fileKey" | "fileDirId">
+  ) {
+    const info = await this.inferVideoInfo(basename(videoFile.fileKey), {
+      source: "video-auto-extract",
+      target: videoFile.fileKey,
+      fileKey: videoFile.fileKey,
+    });
+    await db.transaction(async (tx) => {
+      await this.applyInferredInfo(tx, videoId, info);
+    });
+    if (videoFile.fileDirId != null) {
+      await bindingStrategiesService.applyMatchingStrategiesForVideoFile(
+        { fileDirId: videoFile.fileDirId, fileKey: videoFile.fileKey },
+        videoId
+      );
+    }
+  }
+
+  private scheduleInferAndApplyInfoForVideo(
+    videoId: number,
+    videoFile: Pick<VideoFile, "fileKey" | "fileDirId">
+  ) {
+    void this.inferAndApplyInfoForVideo(videoId, videoFile).catch((error) => {
+      this.logger.warn(
+        error,
+        `自动提取视频信息失败(已忽略，不影响索引): videoId=${videoId}, fileKey=${videoFile.fileKey}`
+      );
+    });
+  }
+
   private async applyInferredInfo(
     tx: Awaited<Parameters<Parameters<typeof db.transaction>[0]>[0]>,
     videoId: number,
@@ -1037,8 +1069,11 @@ class VideosService {
 
   async insertVideoFromVideoFile(
     videoFile: VideoFile,
-    options?: { autoExtract?: boolean }
+    options?: { autoExtract?: boolean; waitForAutoExtract?: boolean }
   ) {
+    const autoExtract = options?.autoExtract ?? true;
+    const waitForAutoExtract = options?.waitForAutoExtract ?? true;
+
     // 查询 uniqueId 是否已经存在（仅查 videoId，避免触发深层关联的大型 lateral join）
     const content = await db.query.videoUniqueContentsTable.findFirst({
       where: eq(videoUniqueContentsTable.uniqueId, videoFile.uniqueId),
@@ -1054,10 +1089,9 @@ class VideosService {
       }
     }
 
-    const autoExtract = options?.autoExtract ?? true;
     let inferredInfo: InferVideoInfoResult | null = null;
 
-    if (autoExtract) {
+    if (autoExtract && waitForAutoExtract) {
       inferredInfo = await this.inferVideoInfo(basename(videoFile.fileKey), {
         source: "video-auto-extract",
         target: videoFile.fileKey,
@@ -1099,10 +1133,16 @@ class VideosService {
       });
     });
     if (raw) {
-      await bindingStrategiesService.applyMatchingStrategiesForVideoFile(
-        { fileDirId: videoFile.fileDirId, fileKey: videoFile.fileKey },
-        (raw as { id: number }).id
-      );
+      const createdVideoId = (raw as { id: number }).id;
+      if (videoFile.fileDirId != null) {
+        await bindingStrategiesService.applyMatchingStrategiesForVideoFile(
+          { fileDirId: videoFile.fileDirId, fileKey: videoFile.fileKey },
+          createdVideoId
+        );
+      }
+      if (autoExtract && !waitForAutoExtract) {
+        this.scheduleInferAndApplyInfoForVideo(createdVideoId, videoFile);
+      }
     }
     return raw ? toVideoResponse(raw as Parameters<typeof toVideoResponse>[0]) : null;
   }

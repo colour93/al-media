@@ -1,6 +1,6 @@
 import { StatusMap, t } from "elysia";
 
-const MAX_PAGE_SIZE = 100;
+export const MAX_PAGE_SIZE = 100;
 
 const sortOrderSchema = t.Union([t.Literal("asc"), t.Literal("desc")]);
 

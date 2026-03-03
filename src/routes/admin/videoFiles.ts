@@ -3,6 +3,7 @@ import { videoFilesService } from "../../services/videoFiles";
 import { videoFileManager } from "../../services/videoFileManager";
 import { videoFileIndexStrategiesService } from "../../services/videoFileIndexStrategies";
 import {
+  MAX_PAGE_SIZE,
   paginationQuerySchema,
   parsePagination,
   parseSearchQuery,
@@ -52,7 +53,7 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
         set.status = 400;
         return { message: "fileDirId 无效" };
       }
-      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
         set.status = 400;
         return { message: "pageSize 无效" };
       }
@@ -76,7 +77,7 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
         set.status = 400;
         return { message: "fileDirId 无效" };
       }
-      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
         set.status = 400;
         return { message: "pageSize 无效" };
       }

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Box, Typography, Button, TextField, Autocomplete, Chip } from '@mui/material';
+import { Box, Typography, Button, TextField, Chip } from '@mui/material';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
@@ -16,7 +16,9 @@ import {
 } from '../hooks/useActors';
 import { getFileUrl } from '../api/file';
 import { useTagsList } from '../hooks/useTags';
+import { fetchTagsList, searchTags } from '../api/tags';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
+import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { renderLucideIcon } from '../utils/lucideIcons';
 import { validateListSearch } from '../schemas/listSearch';
 import type { Actor } from '../api/types';
@@ -26,6 +28,16 @@ export const Route = createFileRoute('/actors')({
   validateSearch: validateListSearch,
   component: ActorsPage,
 });
+
+const ENTITY_SELECTOR_PAGE_SIZE = 20;
+
+function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
+  const map = new Map<number, T>();
+  for (const item of [...base, ...extra]) {
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
 
 function ActorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
@@ -45,6 +57,7 @@ function ActorsPage() {
   const [formName, setFormName] = useState('');
   const [formAvatarKey, setFormAvatarKey] = useState<string | null>(null);
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [additionalTags, setAdditionalTags] = useState<(Tag & { tagType?: TagType })[]>([]);
 
   const actorIdToFetch = editing?.id ?? editId ?? null;
   const { data: actorDetail } = useActor(actorIdToFetch);
@@ -54,13 +67,21 @@ function ActorsPage() {
     setSearchDraft(keyword);
   }, [keyword]);
 
-  const tags = tagsData?.items ?? [];
+  const tags = useMemo(
+    () =>
+      mergeById(
+        (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[],
+        additionalTags
+      ),
+    [tagsData?.items, additionalTags]
+  );
 
   const handleOpenCreate = () => {
     setEditing(null);
     setFormName('');
     setFormAvatarKey(null);
     setFormTagIds([]);
+    setAdditionalTags([]);
     setFormOpen(true);
   };
 
@@ -69,11 +90,15 @@ function ActorsPage() {
     setFormName(row.name);
     setFormAvatarKey(row.avatarKey ?? null);
     setFormTagIds([]);
+    setAdditionalTags((row.tags ?? []) as (Tag & { tagType?: TagType })[]);
     setFormOpen(true);
   };
 
   useEffect(() => {
     if (actorDetail?.tags) {
+      setAdditionalTags((prev) =>
+        mergeById(prev, actorDetail.tags as (Tag & { tagType?: TagType })[])
+      );
       setFormTagIds(actorDetail.tags.map((t) => t.id));
     }
   }, [actorDetail?.tags]);
@@ -90,6 +115,7 @@ function ActorsPage() {
   const handleFormClose = () => {
     setFormOpen(false);
     setEditing(null);
+    setAdditionalTags([]);
     if (editId) {
       navigate({ search: (prev) => ({ ...prev, editId: undefined }) });
     }
@@ -228,20 +254,25 @@ function ActorsPage() {
               onChange={setFormAvatarKey}
             />
           </Box>
-          <Autocomplete<Tag, true>
-            multiple
+          <EntityCreateAutocomplete<Tag & { tagType?: TagType }>
+            label="标签"
+            placeholder="搜索并选择标签"
             options={tags}
+            value={selectedTags as (Tag & { tagType?: TagType })[]}
+            onChange={setFormTagIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchTags(keyword.trim(), page, pageSize)
+                : fetchTagsList(page, pageSize)
+            }
             getOptionLabel={(t) => t.name}
-            value={selectedTags}
-            onChange={(_, v) => setFormTagIds(v.map((t) => t.id))}
-            renderOption={(props, t) => (
-              <li {...props} key={t.id}>
-                <EntityPreview
-                  entityType="tag"
-                  entity={t as Tag & { tagType?: TagType }}
-                  inline
-                />
-              </li>
+            renderOption={(_, t) => (
+              <EntityPreview
+                entityType="tag"
+                entity={t as Tag & { tagType?: TagType }}
+                inline
+              />
             )}
             renderTags={(value, getTagProps) =>
               value.map((t, index) => {
@@ -268,9 +299,6 @@ function ActorsPage() {
                 );
               })
             }
-            renderInput={(params) => (
-              <TextField {...params} label="标签" placeholder="选择标签" />
-            )}
           />
         </Box>
       </FormDialog>

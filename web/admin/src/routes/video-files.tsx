@@ -16,7 +16,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Autocomplete,
   Chip,
   Avatar,
   CircularProgress,
@@ -60,15 +59,19 @@ import {
   useResumeVideoInferTask,
 } from '../hooks/useVideos';
 import { batchAddTagsToVideos, batchAddActorsToVideos, batchAddCreatorsToVideos } from '../api/videos';
-import { useActorsList } from '../hooks/useActors';
-import { useCreatorsList } from '../hooks/useCreators';
+import { useActorCreate, useActorsList } from '../hooks/useActors';
+import { useCreatorCreate, useCreatorsList } from '../hooks/useCreators';
 import { useTagsList } from '../hooks/useTags';
+import { fetchActorsList, searchActors } from '../api/actors';
+import { fetchCreatorsList, searchCreators } from '../api/creators';
+import { fetchTagsList, searchTags } from '../api/tags';
 import { useFileDirsList } from '../hooks/useFileDirs';
 import { getFileUrl } from '../api/file';
 import { renderLucideIcon } from '../utils/lucideIcons';
 import { formatDurationHuman } from '../utils/format';
 import { useQueryClient } from '@tanstack/react-query';
 import { validateListSearch } from '../schemas/listSearch';
+import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import type { VideoFile } from '../api/types';
 import type { Actor } from '../api/types';
 import type { Creator } from '../api/types';
@@ -108,11 +111,20 @@ type FolderViewRow =
   | { type: 'load-more-files'; key: string; depth: number; node: FolderNode };
 
 const FOLDER_VIEW_PAGE_SIZE = 50;
+const ENTITY_SELECTOR_PAGE_SIZE = 20;
 const FOLDER_ROW_HEIGHT = 52;
 const FOLDER_OVERSCAN = 8;
 
 function buildFolderKey(fileDirId: number, folderPath: string): string {
   return `${fileDirId}:${folderPath}`;
+}
+
+function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
+  const map = new Map<number, T>();
+  for (const item of [...base, ...extra]) {
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
 }
 
 function createEmptyCursorChunk<T>(): CursorChunk<T> {
@@ -458,7 +470,7 @@ function FolderLazyView(props: {
             }
 
             if (row.type === 'file') {
-              const fileName = row.file.fileKey.split('/').pop() ?? row.file.fileKey;
+              const fileName = row.file.fileKey.split(/[\\/]/).pop() ?? row.file.fileKey;
               return (
                 <Box
                   key={row.key}
@@ -576,6 +588,8 @@ function VideoFilesPage() {
   const updateIndexStrategyMut = useVideoFileIndexStrategyUpdate();
   const deleteIndexStrategyMut = useVideoFileIndexStrategyDelete();
   const applyIndexStrategyMut = useApplyVideoFileIndexStrategy();
+  const actorCreateMut = useActorCreate();
+  const creatorCreateMut = useCreatorCreate();
   const { data: actorsData } = useActorsList(1, 50, '');
   const { data: creatorsData } = useCreatorsList(1, 50, '');
   const { data: tagsData } = useTagsList(1, 50, '');
@@ -593,6 +607,9 @@ function VideoFilesPage() {
   const [batchTagIds, setBatchTagIds] = useState<number[]>([]);
   const [batchActorIds, setBatchActorIds] = useState<number[]>([]);
   const [batchCreatorIds, setBatchCreatorIds] = useState<number[]>([]);
+  const [batchAdditionalActors, setBatchAdditionalActors] = useState<Actor[]>([]);
+  const [batchAdditionalCreators, setBatchAdditionalCreators] = useState<Creator[]>([]);
+  const [batchAdditionalTags, setBatchAdditionalTags] = useState<(Tag & { tagType?: TagType })[]>([]);
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [scanFileDirId, setScanFileDirId] = useState<number | ''>('');
   const [indexStrategyFormOpen, setIndexStrategyFormOpen] = useState(false);
@@ -606,9 +623,22 @@ function VideoFilesPage() {
   const total = data?.total ?? 0;
   const fileDirs = useMemo(() => (fileDirsData?.items ?? []) as FileDir[], [fileDirsData?.items]);
   const enabledFileDirs = useMemo(() => fileDirs.filter((dir) => dir.enabled), [fileDirs]);
-  const actors = actorsData?.items ?? [];
-  const creators = creatorsData?.items ?? [];
-  const tags = (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[];
+  const actors = useMemo(
+    () => mergeById((actorsData?.items ?? []) as Actor[], batchAdditionalActors),
+    [actorsData?.items, batchAdditionalActors]
+  );
+  const creators = useMemo(
+    () => mergeById((creatorsData?.items ?? []) as Creator[], batchAdditionalCreators),
+    [batchAdditionalCreators, creatorsData?.items]
+  );
+  const tags = useMemo(
+    () =>
+      mergeById(
+        (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[],
+        batchAdditionalTags
+      ),
+    [batchAdditionalTags, tagsData?.items]
+  );
   const indexStrategies = (indexStrategiesData?.items ?? []) as VideoFileIndexStrategy[];
 
   useEffect(() => {
@@ -695,6 +725,9 @@ function VideoFilesPage() {
       setBatchTagIds([]);
       setBatchActorIds([]);
       setBatchCreatorIds([]);
+      setBatchAdditionalActors([]);
+      setBatchAdditionalCreators([]);
+      setBatchAdditionalTags([]);
       setSelectedFileIds(new Set());
     } finally {
       setBatchSubmitting(false);
@@ -923,7 +956,12 @@ function VideoFilesPage() {
             variant="outlined"
             startIcon={<Tags size={18} />}
             disabled={selectedFileIds.size === 0}
-            onClick={() => setBatchOpen(true)}
+            onClick={() => {
+              setBatchAdditionalActors([]);
+              setBatchAdditionalCreators([]);
+              setBatchAdditionalTags([]);
+              setBatchOpen(true);
+            }}
           >
             批量设置 ({selectedFileIds.size})
           </Button>
@@ -1190,26 +1228,41 @@ function VideoFilesPage() {
         />
       )}
 
-      <Dialog open={batchOpen} onClose={() => setBatchOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={batchOpen}
+        onClose={() => {
+          setBatchOpen(false);
+          setBatchAdditionalActors([]);
+          setBatchAdditionalCreators([]);
+          setBatchAdditionalTags([]);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>批量设置</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <Typography variant="body2" color="text.secondary">
             已选 {selectedFileIds.size} 个视频文件。无关联视频的文件将先新建视频再应用设置。
           </Typography>
-          <Autocomplete<Tag, true>
-            multiple
+          <EntityCreateAutocomplete<Tag & { tagType?: TagType }>
+            label="添加标签"
+            placeholder="搜索并选择标签"
             options={tags}
+            value={tags.filter((t) => batchTagIds.includes(t.id)) as (Tag & { tagType?: TagType })[]}
+            onChange={setBatchTagIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchTags(keyword.trim(), page, pageSize)
+                : fetchTagsList(page, pageSize)
+            }
             getOptionLabel={(t) => t.name}
-            value={tags.filter((t) => batchTagIds.includes(t.id))}
-            onChange={(_, v) => setBatchTagIds(v.map((t) => t.id))}
-            renderOption={(props, t) => (
-              <li {...props} key={t.id}>
-                <EntityPreview
-                  entityType="tag"
-                  entity={t as Tag & { tagType?: TagType }}
-                  inline
-                />
-              </li>
+            renderOption={(_, t) => (
+              <EntityPreview
+                entityType="tag"
+                entity={t as Tag & { tagType?: TagType }}
+                inline
+              />
             )}
             renderTags={(value, getTagProps) =>
               value.map((t, i) => {
@@ -1231,17 +1284,21 @@ function VideoFilesPage() {
                 );
               })
             }
-            renderInput={(params) => <TextField {...params} label="添加标签" placeholder="选择标签" />}
           />
-          <Autocomplete<Actor, true>
-            multiple
+          <EntityCreateAutocomplete<Actor>
+            label="添加演员"
+            placeholder="搜索演员，不存在可直接新建"
             options={actors}
-            getOptionLabel={(a) => a.name}
             value={actors.filter((a) => batchActorIds.includes(a.id))}
-            onChange={(_, v) => setBatchActorIds(v.map((a) => a.id))}
-            renderOption={(_, a) => (
-              <EntityPreview entityType="actor" entity={a} inline />
-            )}
+            onChange={setBatchActorIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchActors(keyword.trim(), page, pageSize)
+                : fetchActorsList(page, pageSize)
+            }
+            getOptionLabel={(a) => a.name}
+            renderOption={(_, a) => <EntityPreview entityType="actor" entity={a} inline />}
             renderTags={(value, getTagProps) =>
               value.map((a, i) => (
                 <Chip
@@ -1257,17 +1314,23 @@ function VideoFilesPage() {
                 />
               ))
             }
-            renderInput={(params) => <TextField {...params} label="添加演员" placeholder="选择演员" />}
+            onCreate={async (name) => actorCreateMut.mutateAsync({ name })}
+            onCreated={(entity) => setBatchAdditionalActors((prev) => mergeById(prev, [entity]))}
           />
-          <Autocomplete<Creator, true>
-            multiple
+          <EntityCreateAutocomplete<Creator>
+            label="添加创作者"
+            placeholder="搜索创作者，不存在可直接新建"
             options={creators}
-            getOptionLabel={(c) => c.name}
             value={creators.filter((c) => batchCreatorIds.includes(c.id))}
-            onChange={(_, v) => setBatchCreatorIds(v.map((c) => c.id))}
-            renderOption={(_, c) => (
-              <EntityPreview entityType="creator" entity={c} inline />
-            )}
+            onChange={setBatchCreatorIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchCreators(keyword.trim(), page, pageSize)
+                : fetchCreatorsList(page, pageSize)
+            }
+            getOptionLabel={(c) => c.name}
+            renderOption={(_, c) => <EntityPreview entityType="creator" entity={c} inline />}
             renderTags={(value, getTagProps) =>
               value.map((c, i) => (
                 <Chip
@@ -1278,11 +1341,21 @@ function VideoFilesPage() {
                 />
               ))
             }
-            renderInput={(params) => <TextField {...params} label="添加创作者" placeholder="选择创作者" />}
+            onCreate={async (name) => creatorCreateMut.mutateAsync({ name, type: 'person' })}
+            onCreated={(entity) => setBatchAdditionalCreators((prev) => mergeById(prev, [entity]))}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setBatchOpen(false)}>取消</Button>
+          <Button
+            onClick={() => {
+              setBatchOpen(false);
+              setBatchAdditionalActors([]);
+              setBatchAdditionalCreators([]);
+              setBatchAdditionalTags([]);
+            }}
+          >
+            取消
+          </Button>
           <Button
             variant="contained"
             onClick={handleBatchApply}

@@ -1,30 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Autocomplete, TextField, Box } from '@mui/material';
+import { Autocomplete, Box, TextField } from '@mui/material';
 import { Plus } from 'lucide-react';
 import type { PaginatedResult } from '../../api/types';
 
-const CREATE_OPTION = Symbol('__createNew');
+const CREATE_OPTION = Symbol('__createNewSingle');
 
-export interface CreateOption {
+type CreateOption = {
   [CREATE_OPTION]: true;
   name: string;
-}
+};
 
 function isCreateOption<T>(opt: T | CreateOption): opt is CreateOption {
   return typeof opt === 'object' && opt !== null && CREATE_OPTION in opt;
 }
 
-export interface EntityCreateAutocompleteProps<T extends { id: number; name: string }> {
+export interface EntityCreateSingleAutocompleteProps<T extends { id: number; name: string }> {
   label: string;
   placeholder?: string;
+  value: T | null;
   options?: T[];
-  value: T[];
-  onChange: (ids: number[]) => void;
+  onChange: (value: T | null) => void;
   getOptionLabel: (opt: T) => string;
   renderOption?: (props: React.HTMLAttributes<HTMLLIElement>, opt: T) => React.ReactNode;
-  renderTags?: (value: T[], getTagProps: (params: { index: number }) => Record<string, unknown>) => React.ReactNode;
   onCreate?: (name: string) => Promise<T>;
-  /** 创建成功后调用，用于将新实体加入选项列表（因列表可能未及时刷新） */
   onCreated?: (entity: T) => void;
   createLabel?: string;
   pageSize?: number;
@@ -35,24 +33,23 @@ export interface EntityCreateAutocompleteProps<T extends { id: number; name: str
   }) => Promise<PaginatedResult<T>>;
 }
 
-export function EntityCreateAutocomplete<T extends { id: number; name: string }>({
+export function EntityCreateSingleAutocomplete<T extends { id: number; name: string }>({
   label,
-  placeholder = '选择或输入新建',
-  options = [],
+  placeholder = '搜索并选择',
   value,
+  options = [],
   onChange,
   getOptionLabel,
   renderOption,
-  renderTags,
   onCreate,
   onCreated,
   createLabel = '新建',
   pageSize = 20,
   loadOptions,
-}: EntityCreateAutocompleteProps<T>) {
+}: EntityCreateSingleAutocompleteProps<T>) {
+  const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [creating, setCreating] = useState(false);
-  const [open, setOpen] = useState(false);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteItems, setRemoteItems] = useState<T[]>([]);
   const [remotePage, setRemotePage] = useState(0);
@@ -73,11 +70,7 @@ export function EntityCreateAutocomplete<T extends { id: number; name: string }>
       const requestId = ++requestIdRef.current;
       setRemoteLoading(true);
       try {
-        const result = await loadOptions({
-          keyword,
-          page,
-          pageSize,
-        });
+        const result = await loadOptions({ keyword, page, pageSize });
         if (requestId !== requestIdRef.current) return;
         setRemotePage(result.page);
         setRemoteTotal(result.total);
@@ -106,58 +99,49 @@ export function EntityCreateAutocomplete<T extends { id: number; name: string }>
 
   const baseOptions = useMemo(() => {
     const remoteOrLocal = loadOptions ? remoteItems : options;
-    return mergeUnique([...remoteOrLocal, ...value]);
+    return mergeUnique([...remoteOrLocal, ...(value ? [value] : [])]);
   }, [loadOptions, mergeUnique, options, remoteItems, value]);
 
-  const createOpt: CreateOption = { [CREATE_OPTION]: true, name: inputValue.trim() };
+  const createOption: CreateOption = { [CREATE_OPTION]: true, name: inputValue.trim() };
   const showCreate =
     !!onCreate &&
     inputValue.trim().length > 0 &&
     !baseOptions.some((o) => getOptionLabel(o).toLowerCase() === inputValue.trim().toLowerCase());
-
-  const allOptions: (T | CreateOption)[] = showCreate ? [...baseOptions, createOpt] : baseOptions;
-
-  const handleChange = async (
-    _: React.SyntheticEvent,
-    newValue: (T | CreateOption)[],
-    reason: string
-  ) => {
-    if (reason === 'clear') {
-      onChange([]);
-      return;
-    }
-    const createSelected = newValue.find(isCreateOption);
-    if (createSelected) {
-      if (!onCreate) return;
-      setCreating(true);
-      try {
-        const created = await onCreate(createSelected.name);
-        onCreated?.(created);
-        onChange([...new Set([...value.map((v) => v.id), created.id])]);
-        setInputValue('');
-        setRemoteItems((prev) => mergeUnique([...prev, created]));
-      } finally {
-        setCreating(false);
-      }
-      return;
-    }
-    onChange(newValue.filter((o): o is T => !isCreateOption(o)).map((o) => o.id));
-  };
+  const allOptions: (T | CreateOption)[] = showCreate ? [...baseOptions, createOption] : baseOptions;
 
   return (
-    <Autocomplete<T | CreateOption, true>
-      multiple
+    <Autocomplete<T | CreateOption, false, false, false>
       options={allOptions}
       value={value}
       inputValue={inputValue}
       onInputChange={(_, v) => setInputValue(v)}
       onOpen={() => setOpen(true)}
       onClose={() => setOpen(false)}
-      onChange={handleChange}
+      onChange={async (_, newValue) => {
+        if (!newValue) {
+          onChange(null);
+          return;
+        }
+        if (isCreateOption(newValue)) {
+          if (!onCreate) return;
+          setCreating(true);
+          try {
+            const created = await onCreate(newValue.name);
+            onCreated?.(created);
+            onChange(created);
+            setInputValue('');
+            setRemoteItems((prev) => mergeUnique([...prev, created]));
+          } finally {
+            setCreating(false);
+          }
+          return;
+        }
+        onChange(newValue);
+      }}
       getOptionLabel={(opt) => (isCreateOption(opt) ? `${createLabel}「${opt.name}」` : getOptionLabel(opt))}
       isOptionEqualToValue={(opt, val) => {
-        if (isCreateOption(opt)) return false;
-        return (val as T).id === opt.id;
+        if (isCreateOption(opt) || isCreateOption(val)) return false;
+        return opt.id === val.id;
       }}
       filterOptions={(x) => x}
       loading={creating || remoteLoading}
@@ -189,27 +173,16 @@ export function EntityCreateAutocomplete<T extends { id: number; name: string }>
           );
         }
         return renderOption ? (
-          <li {...props} key={(opt as T).id}>
-            {renderOption(props, opt as T)}
+          <li {...props} key={opt.id}>
+            {renderOption(props, opt)}
           </li>
         ) : (
-          <li {...props} key={(opt as T).id}>
-            {getOptionLabel(opt as T)}
+          <li {...props} key={opt.id}>
+            {getOptionLabel(opt)}
           </li>
         );
       }}
-      renderTags={
-        renderTags
-          ? (value, getTagProps) =>
-              renderTags(
-                value.filter((item): item is T => !isCreateOption(item)),
-                (params) => getTagProps(params)
-              )
-          : undefined
-      }
-      renderInput={(params) => (
-        <TextField {...params} label={label} placeholder={placeholder} />
-      )}
+      renderInput={(params) => <TextField {...params} label={label} placeholder={placeholder} />}
     />
   );
 }

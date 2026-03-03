@@ -6,7 +6,6 @@ import {
   Typography,
   Button,
   TextField,
-  Autocomplete,
   Checkbox,
   Dialog,
   DialogTitle,
@@ -37,6 +36,10 @@ import { useActorsList, useActorCreate } from '../hooks/useActors';
 import { useCreatorsList, useCreatorCreate } from '../hooks/useCreators';
 import { useDistributorsList, useDistributorCreate } from '../hooks/useDistributors';
 import { useTagsList } from '../hooks/useTags';
+import { fetchActorsList, searchActors } from '../api/actors';
+import { fetchCreatorsList, searchCreators } from '../api/creators';
+import { fetchDistributorsList, searchDistributors } from '../api/distributors';
+import { fetchTagsList, searchTags } from '../api/tags';
 import { getFileUrl } from '../api/file';
 import { renderLucideIcon } from '../utils/lucideIcons';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
@@ -55,6 +58,16 @@ export const Route = createFileRoute('/videos')({
   validateSearch: validateListSearch,
   component: VideosPage,
 });
+
+const ENTITY_SELECTOR_PAGE_SIZE = 20;
+
+function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
+  const map = new Map<number, T>();
+  for (const item of [...base, ...extra]) {
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
 
 function VideosPage() {
   const navigate = useNavigate({ from: Route.fullPath });
@@ -81,6 +94,7 @@ function VideosPage() {
   const [additionalActors, setAdditionalActors] = useState<Actor[]>([]);
   const [additionalCreators, setAdditionalCreators] = useState<Creator[]>([]);
   const [additionalDistributors, setAdditionalDistributors] = useState<Distributor[]>([]);
+  const [additionalTags, setAdditionalTags] = useState<(Tag & { tagType?: TagType })[]>([]);
 
   const [searchDraft, setSearchDraft] = useState(keyword);
   useEffect(() => {setSearchDraft(keyword)}, [keyword]);
@@ -119,7 +133,11 @@ function VideosPage() {
     const list = [...(distributorsData?.items ?? []), ...additionalDistributors];
     return list.filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
   }, [distributorsData?.items, additionalDistributors]);
-  const tags = tagsData?.items ?? [];
+  const tags = useMemo(() => {
+    const seen = new Set<number>();
+    const list = [...(tagsData?.items ?? []), ...additionalTags];
+    return list.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+  }, [tagsData?.items, additionalTags]);
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -133,11 +151,19 @@ function VideosPage() {
     setFormIsBanner(false);
     setFormBannerOrder('');
     setFormRecommendedOrder('');
+    setAdditionalActors([]);
+    setAdditionalCreators([]);
+    setAdditionalDistributors([]);
+    setAdditionalTags([]);
     setFormOpen(true);
   };
 
   const handleOpenEdit = (row: VideoDetail) => {
     setEditing(row);
+    setAdditionalActors((row.actors ?? []) as Actor[]);
+    setAdditionalCreators((row.creators ?? []) as Creator[]);
+    setAdditionalDistributors((row.distributors ?? []) as Distributor[]);
+    setAdditionalTags((row.tags ?? []) as (Tag & { tagType?: TagType })[]);
     setFormTitle(row.title);
     setFormThumbnailKey(row.thumbnailKey ?? null);
     setFormActorIds(row.actors?.map((a) => a.id) ?? []);
@@ -153,6 +179,12 @@ function VideosPage() {
 
   useEffect(() => {
     if (videoDetail) {
+      setAdditionalActors((prev) => mergeById(prev, (videoDetail.actors ?? []) as Actor[]));
+      setAdditionalCreators((prev) => mergeById(prev, (videoDetail.creators ?? []) as Creator[]));
+      setAdditionalDistributors((prev) => mergeById(prev, (videoDetail.distributors ?? []) as Distributor[]));
+      setAdditionalTags((prev) =>
+        mergeById(prev, (videoDetail.tags ?? []) as (Tag & { tagType?: TagType })[])
+      );
       setFormActorIds(videoDetail.actors?.map((a) => a.id) ?? []);
       setFormCreatorIds(videoDetail.creators?.map((c) => c.id) ?? []);
       setFormDistributorIds(videoDetail.distributors?.map((d) => d.id) ?? []);
@@ -179,6 +211,7 @@ function VideosPage() {
     setAdditionalActors([]);
     setAdditionalCreators([]);
     setAdditionalDistributors([]);
+    setAdditionalTags([]);
     if (editId) navigate({ search: (prev) => ({ ...prev, editId: undefined }) });
   };
 
@@ -598,6 +631,12 @@ function VideosPage() {
                   options={actors}
                   value={selectedActors}
                   onChange={setFormActorIds}
+                  pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+                  loadOptions={({ keyword, page, pageSize }) =>
+                    keyword.trim()
+                      ? searchActors(keyword.trim(), page, pageSize)
+                      : fetchActorsList(page, pageSize)
+                  }
                   getOptionLabel={(a) => a.name}
                   renderOption={(_, a) => (
                     <EntityPreview entityType="actor" entity={a} inline />
@@ -618,7 +657,7 @@ function VideosPage() {
                     ))
                   }
                   onCreate={async (name) => actorCreateMut.mutateAsync({ name })}
-                  onCreated={(entity) => setAdditionalActors((prev) => [...prev, entity])}
+                  onCreated={(entity) => setAdditionalActors((prev) => mergeById(prev, [entity]))}
                 />
                 <EntityCreateAutocomplete<Creator>
                   label="创作者"
@@ -626,6 +665,12 @@ function VideosPage() {
                   options={creators}
                   value={selectedCreators}
                   onChange={setFormCreatorIds}
+                  pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+                  loadOptions={({ keyword, page, pageSize }) =>
+                    keyword.trim()
+                      ? searchCreators(keyword.trim(), page, pageSize)
+                      : fetchCreatorsList(page, pageSize)
+                  }
                   getOptionLabel={(c) => c.name}
                   renderOption={(_, c) => (
                     <EntityPreview entityType="creator" entity={c} inline />
@@ -641,7 +686,7 @@ function VideosPage() {
                     ))
                   }
                   onCreate={async (name) => creatorCreateMut.mutateAsync({ name, type: 'person' })}
-                  onCreated={(entity) => setAdditionalCreators((prev) => [...prev, entity])}
+                  onCreated={(entity) => setAdditionalCreators((prev) => mergeById(prev, [entity]))}
                 />
                 <EntityCreateAutocomplete<Distributor>
                   label="发行方"
@@ -649,6 +694,12 @@ function VideosPage() {
                   options={distributors}
                   value={selectedDistributors}
                   onChange={setFormDistributorIds}
+                  pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+                  loadOptions={({ keyword, page, pageSize }) =>
+                    keyword.trim()
+                      ? searchDistributors(keyword.trim(), page, pageSize)
+                      : fetchDistributorsList(page, pageSize)
+                  }
                   getOptionLabel={(d) => d.name}
                   renderOption={(_, d) => (
                     <EntityPreview entityType="distributor" entity={d} inline />
@@ -659,22 +710,27 @@ function VideosPage() {
                     ))
                   }
                   onCreate={async (name) => distributorCreateMut.mutateAsync({ name })}
-                  onCreated={(entity) => setAdditionalDistributors((prev) => [...prev, entity])}
+                  onCreated={(entity) => setAdditionalDistributors((prev) => mergeById(prev, [entity]))}
                 />
-                <Autocomplete<Tag, true>
-                  multiple
+                <EntityCreateAutocomplete<Tag & { tagType?: TagType }>
+                  label="标签"
+                  placeholder="搜索并选择标签"
                   options={tags}
+                  value={selectedTags as (Tag & { tagType?: TagType })[]}
+                  onChange={setFormTagIds}
+                  pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+                  loadOptions={({ keyword, page, pageSize }) =>
+                    keyword.trim()
+                      ? searchTags(keyword.trim(), page, pageSize)
+                      : fetchTagsList(page, pageSize)
+                  }
                   getOptionLabel={(t) => t.name}
-                  value={selectedTags}
-                  onChange={(_, v) => setFormTagIds(v.map((t) => t.id))}
-                  renderOption={(props, t) => (
-                    <li {...props} key={t.id}>
-                      <EntityPreview
-                        entityType="tag"
-                        entity={t as Tag & { tagType?: TagType }}
-                        inline
-                      />
-                    </li>
+                  renderOption={(_, t) => (
+                    <EntityPreview
+                      entityType="tag"
+                      entity={t as Tag & { tagType?: TagType }}
+                      inline
+                    />
                   )}
                   renderTags={(value, getTagProps) =>
                     value.map((t, index) => {
@@ -701,9 +757,6 @@ function VideosPage() {
                       );
                     })
                   }
-                  renderInput={(params) => (
-                    <TextField {...params} label="标签" placeholder="选择标签" />
-                  )}
                 />
               </Box>
             </Box>
@@ -728,20 +781,25 @@ function VideosPage() {
       <Dialog open={batchTagsOpen} onClose={() => setBatchTagsOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>批量添加标签</DialogTitle>
         <DialogContent>
-          <Autocomplete<Tag, true>
-            multiple
+          <EntityCreateAutocomplete<Tag & { tagType?: TagType }>
+            label="选择标签"
+            placeholder="搜索要添加的标签"
             options={tags}
+            value={tags.filter((t) => batchTagIds.includes(t.id)) as (Tag & { tagType?: TagType })[]}
+            onChange={setBatchTagIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchTags(keyword.trim(), page, pageSize)
+                : fetchTagsList(page, pageSize)
+            }
             getOptionLabel={(t) => t.name}
-            value={tags.filter((t) => batchTagIds.includes(t.id))}
-            onChange={(_, v) => setBatchTagIds(v.map((t) => t.id))}
-            renderOption={(props, t) => (
-              <li {...props} key={t.id}>
-                <EntityPreview
-                  entityType="tag"
-                  entity={t as Tag & { tagType?: TagType }}
-                  inline
-                />
-              </li>
+            renderOption={(_, t) => (
+              <EntityPreview
+                entityType="tag"
+                entity={t as Tag & { tagType?: TagType }}
+                inline
+              />
             )}
             renderTags={(value, getTagProps) =>
               value.map((t, index) => {
@@ -768,10 +826,6 @@ function VideosPage() {
                 );
               })
             }
-            renderInput={(params) => (
-              <TextField {...params} label="选择标签" placeholder="选择要添加的标签" />
-            )}
-            sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>

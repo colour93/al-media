@@ -1,5 +1,7 @@
 import { ADMIN_API, COMMON_API } from '../config/api';
 
+const MAX_PAGE_SIZE = 100;
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -51,11 +53,26 @@ export interface RequestParams {
   [key: string]: string | number | boolean | undefined;
 }
 
+function normalizeRequestParams(params?: RequestParams): RequestParams | undefined {
+  if (!params) return params;
+  if (params.pageSize === undefined) return params;
+  const n = Number(params.pageSize);
+  if (!Number.isFinite(n)) {
+    const { pageSize: _omit, ...rest } = params;
+    return rest;
+  }
+  return {
+    ...params,
+    pageSize: Math.min(MAX_PAGE_SIZE, Math.max(1, Math.trunc(n))),
+  };
+}
+
 function buildUrl(path: string, params?: RequestParams, basePrefix: 'common' | 'admin' = 'common'): string {
   const base = path.startsWith('http') ? path : basePrefix === 'admin' ? `${ADMIN_API}${path}` : `${COMMON_API}${path}`;
-  if (!params || Object.keys(params).length === 0) return base;
+  const normalizedParams = normalizeRequestParams(params);
+  if (!normalizedParams || Object.keys(normalizedParams).length === 0) return base;
   const search = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
+  for (const [k, v] of Object.entries(normalizedParams)) {
     if (v !== undefined && v !== '') {
       search.set(k, String(v));
     }

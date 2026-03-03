@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Box, Typography, Button, TextField, MenuItem, Autocomplete, Chip } from '@mui/material';
+import { Box, Typography, Button, TextField, MenuItem, Chip } from '@mui/material';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
@@ -13,12 +13,16 @@ import {
   useCreatorDelete,
   useCreator,
 } from '../hooks/useCreators';
-import { useActorsList } from '../hooks/useActors';
+import { useActor, useActorCreate, useActorsList } from '../hooks/useActors';
 import { useTagsList } from '../hooks/useTags';
+import { fetchActorsList, searchActors } from '../api/actors';
+import { fetchTagsList, searchTags } from '../api/tags';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { renderLucideIcon } from '../utils/lucideIcons';
+import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
+import { EntityCreateSingleAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateSingleAutocomplete';
 import { validateListSearch } from '../schemas/listSearch';
-import type { Creator } from '../api/types';
+import type { Actor, Creator } from '../api/types';
 import type { Tag, TagType } from '../api/types';
 
 const CREATOR_TYPES = [
@@ -38,6 +42,16 @@ export const Route = createFileRoute('/creators')({
   component: CreatorsPage,
 });
 
+const ENTITY_SELECTOR_PAGE_SIZE = 20;
+
+function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
+  const map = new Map<number, T>();
+  for (const item of [...base, ...extra]) {
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
+
 function CreatorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { page, pageSize, keyword, sortBy, sortOrder, editId } = Route.useSearch();
@@ -51,6 +65,7 @@ function CreatorsPage() {
   const createMut = useCreatorCreate();
   const updateMut = useCreatorUpdate();
   const deleteMut = useCreatorDelete();
+  const actorCreateMut = useActorCreate();
 
   const [searchDraft, setSearchDraft] = useState(keyword);
   useEffect(() => {setSearchDraft(keyword)}, [keyword]);
@@ -63,9 +78,22 @@ function CreatorsPage() {
   const [formPlatform, setFormPlatform] = useState<string | ''>('');
   const [formPlatformId, setFormPlatformId] = useState('');
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [additionalActors, setAdditionalActors] = useState<Actor[]>([]);
+  const [additionalTags, setAdditionalTags] = useState<(Tag & { tagType?: TagType })[]>([]);
+  const { data: selectedActorDetail } = useActor(typeof formActorId === 'number' ? formActorId : null);
 
-  const actors = actorsData?.items ?? [];
-  const tags = tagsData?.items ?? [];
+  const actors = useMemo(
+    () => mergeById((actorsData?.items ?? []) as Actor[], additionalActors),
+    [actorsData?.items, additionalActors]
+  );
+  const tags = useMemo(
+    () =>
+      mergeById(
+        (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[],
+        additionalTags
+      ),
+    [tagsData?.items, additionalTags]
+  );
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -75,6 +103,8 @@ function CreatorsPage() {
     setFormPlatform('');
     setFormPlatformId('');
     setFormTagIds([]);
+    setAdditionalActors([]);
+    setAdditionalTags([]);
     setFormOpen(true);
   };
 
@@ -86,14 +116,24 @@ function CreatorsPage() {
     setFormPlatform(row.platform ?? '');
     setFormPlatformId(row.platformId ?? '');
     setFormTagIds([]);
+    setAdditionalTags((row.tags ?? []) as (Tag & { tagType?: TagType })[]);
     setFormOpen(true);
   };
 
   useEffect(() => {
     if (creatorDetail?.tags) {
+      setAdditionalTags((prev) =>
+        mergeById(prev, creatorDetail.tags as (Tag & { tagType?: TagType })[])
+      );
       setFormTagIds(creatorDetail.tags.map((t) => t.id));
     }
   }, [creatorDetail?.tags]);
+
+  useEffect(() => {
+    if (selectedActorDetail) {
+      setAdditionalActors((prev) => mergeById(prev, [selectedActorDetail]));
+    }
+  }, [selectedActorDetail]);
 
   useEffect(() => {
     if (editId && creatorDetail) {
@@ -101,15 +141,23 @@ function CreatorsPage() {
       setFormName(creatorDetail.name);
       setFormType(creatorDetail.type);
       setFormActorId(creatorDetail.actorId ?? '');
+      if (creatorDetail.actorId != null) {
+        const actor = (actorsData?.items ?? []).find((it) => it.id === creatorDetail.actorId);
+        if (actor) {
+          setAdditionalActors((prev) => mergeById(prev, [actor as Actor]));
+        }
+      }
       setFormPlatform(creatorDetail.platform ?? '');
       setFormPlatformId(creatorDetail.platformId ?? '');
       setFormOpen(true);
     }
-  }, [editId, creatorDetail]);
+  }, [actorsData?.items, creatorDetail, editId]);
 
   const handleFormClose = () => {
     setFormOpen(false);
     setEditing(null);
+    setAdditionalActors([]);
+    setAdditionalTags([]);
     if (editId) navigate({ search: (prev) => ({ ...prev, editId: undefined }) });
   };
 
@@ -154,6 +202,10 @@ function CreatorsPage() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
 
+  const selectedActor =
+    formActorId === ''
+      ? null
+      : actors.find((a) => a.id === formActorId) ?? selectedActorDetail ?? null;
   const selectedTags = tags.filter((t) => formTagIds.includes(t.id));
 
   return (
@@ -236,20 +288,23 @@ function CreatorsPage() {
               </MenuItem>
             ))}
           </TextField>
-          <TextField
-            select
+          <EntityCreateSingleAutocomplete<Actor>
             label="关联演员"
-            value={formActorId}
-            onChange={(e) => setFormActorId(e.target.value === '' ? '' : Number(e.target.value))}
-            fullWidth
-          >
-            <MenuItem value="">无</MenuItem>
-            {actors.map((a) => (
-              <MenuItem key={a.id} value={a.id}>
-                {a.name}
-              </MenuItem>
-            ))}
-          </TextField>
+            placeholder="搜索演员，不存在可直接新建"
+            options={actors}
+            value={selectedActor}
+            onChange={(actor) => setFormActorId(actor?.id ?? '')}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchActors(keyword.trim(), page, pageSize)
+                : fetchActorsList(page, pageSize)
+            }
+            getOptionLabel={(a) => a.name}
+            renderOption={(_, a) => <EntityPreview entityType="actor" entity={a} inline />}
+            onCreate={async (name) => actorCreateMut.mutateAsync({ name })}
+            onCreated={(entity) => setAdditionalActors((prev) => mergeById(prev, [entity]))}
+          />
           <TextField
             select
             label="平台"
@@ -271,20 +326,25 @@ function CreatorsPage() {
             placeholder="可选"
             fullWidth
           />
-          <Autocomplete<Tag, true>
-            multiple
+          <EntityCreateAutocomplete<Tag & { tagType?: TagType }>
+            label="标签"
+            placeholder="搜索并选择标签"
             options={tags}
+            value={selectedTags as (Tag & { tagType?: TagType })[]}
+            onChange={setFormTagIds}
+            pageSize={ENTITY_SELECTOR_PAGE_SIZE}
+            loadOptions={({ keyword, page, pageSize }) =>
+              keyword.trim()
+                ? searchTags(keyword.trim(), page, pageSize)
+                : fetchTagsList(page, pageSize)
+            }
             getOptionLabel={(t) => t.name}
-            value={selectedTags}
-            onChange={(_, v) => setFormTagIds(v.map((t) => t.id))}
-            renderOption={(props, t) => (
-              <li {...props} key={t.id}>
-                <EntityPreview
-                  entityType="tag"
-                  entity={t as Tag & { tagType?: TagType }}
-                  inline
-                />
-              </li>
+            renderOption={(_, t) => (
+              <EntityPreview
+                entityType="tag"
+                entity={t as Tag & { tagType?: TagType }}
+                inline
+              />
             )}
             renderTags={(value, getTagProps) =>
               value.map((t, index) => {
@@ -311,9 +371,6 @@ function CreatorsPage() {
                 );
               })
             }
-            renderInput={(params) => (
-              <TextField {...params} label="标签" placeholder="选择标签" />
-            )}
           />
         </Box>
       </FormDialog>

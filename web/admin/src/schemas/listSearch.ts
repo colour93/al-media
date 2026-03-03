@@ -7,6 +7,8 @@ export interface ListSearchParams {
   editId?: number;
 }
 
+export const MAX_PAGE_SIZE = 100;
+
 const defaults: Omit<ListSearchParams, 'editId' | 'sortBy' | 'sortOrder'> = {
   page: 1,
   pageSize: 10,
@@ -33,7 +35,10 @@ export function validateListSearch(search: Record<string, unknown>): ListSearchP
     typeof search?.sortBy === 'string' && search.sortBy.trim() ? search.sortBy.trim() : undefined;
   return {
     page: Number.isInteger(page) && page >= 1 ? page : defaults.page,
-    pageSize: Number.isInteger(pageSize) && pageSize >= 1 && pageSize <= 100 ? pageSize : defaults.pageSize,
+    pageSize:
+      Number.isInteger(pageSize) && pageSize >= 1 && pageSize <= MAX_PAGE_SIZE
+        ? pageSize
+        : defaults.pageSize,
     keyword: typeof search?.keyword === 'string' ? search.keyword : defaults.keyword,
     sortBy,
     sortOrder,

@@ -424,7 +424,7 @@ class VideoFileManager {
       if (!content) {
         const video = await (await import("./videos")).videosService.insertVideoFromVideoFile(
           videoFile as VideoFile,
-          { autoExtract: true }
+          { autoExtract: true, waitForAutoExtract: false }
         );
         if (video) {
           this.logger.debug(`已自动创建视频并应用策略: ${path}`);

@@ -17,11 +17,18 @@ import { VideoCard } from '../components/VideoCard/VideoCard';
 import { useVideosList } from '../hooks/useVideos';
 
 export const Route = createFileRoute('/videos/')({
-  validateSearch: (s: Record<string, unknown>) => ({
-    page: Number(s?.page) || 1,
-    pageSize: Number(s?.pageSize) || 12,
-    q: (s?.q as string) ?? '',
-  }),
+  validateSearch: (s: Record<string, unknown>) => {
+    const pageRaw = Number(s?.page);
+    const pageSizeRaw = Number(s?.pageSize);
+    return {
+      page: Number.isInteger(pageRaw) && pageRaw >= 1 ? pageRaw : 1,
+      pageSize:
+        Number.isInteger(pageSizeRaw) && pageSizeRaw >= 1 && pageSizeRaw <= 100
+          ? pageSizeRaw
+          : 12,
+      q: (s?.q as string) ?? '',
+    };
+  },
   component: VideosListPage,
 });
 
@@ -51,7 +58,7 @@ function VideosListPage() {
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              navigate({ search: { page: 1, pageSize, q: searchInput || undefined } });
+              navigate({ search: { page: 1, pageSize, q: searchInput || '' } });
             }
           }}
           InputProps={{
@@ -69,7 +76,7 @@ function VideosListPage() {
             value={pageSize}
             label="每页"
             onChange={(e) =>
-              navigate({ search: { page: 1, pageSize: Number(e.target.value), q: q || undefined } })
+              navigate({ search: { page: 1, pageSize: Number(e.target.value), q: q || '' } })
             }
           >
             <MenuItem value={12}>12</MenuItem>
@@ -107,7 +114,7 @@ function VideosListPage() {
                 count={totalPages}
                 page={page}
                 onChange={(_, p) =>
-                  navigate({ search: { page: p, pageSize, q: q || undefined } })
+                  navigate({ search: { page: p, pageSize, q: q || '' } })
                 }
                 color="primary"
               />

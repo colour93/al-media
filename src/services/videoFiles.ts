@@ -126,15 +126,16 @@ class VideoFilesService {
     const prefix = normalizedPath ? `${normalizedPath}/` : "";
     const prefixLike = `${prefix}%`;
     const startPos = prefix.length + 1;
-    const childNameSql = sql<string>`split_part(substring(${videoFilesTable.fileKey} from ${startPos}), '/', 1)`;
+    const normalizedFileKeySql = sql<string>`replace(${videoFilesTable.fileKey}, chr(92), '/')`;
+    const childNameSql = sql<string>`split_part(substring(${normalizedFileKeySql} from ${startPos}), '/', 1)`;
 
     const rows = await db
       .select({ name: childNameSql })
       .from(videoFilesTable)
       .where(sql<boolean>`
         ${videoFilesTable.fileDirId} = ${fileDirId}
-        and ${videoFilesTable.fileKey} like ${prefixLike}
-        and position('/' in substring(${videoFilesTable.fileKey} from ${startPos})) > 0
+        and ${normalizedFileKeySql} like ${prefixLike}
+        and position('/' in substring(${normalizedFileKeySql} from ${startPos})) > 0
         ${cursor ? sql`and ${childNameSql} > ${cursor}` : sql``}
       `)
       .groupBy(childNameSql)
@@ -165,12 +166,13 @@ class VideoFilesService {
     const prefix = normalizedPath ? `${normalizedPath}/` : "";
     const prefixLike = `${prefix}%`;
     const startPos = prefix.length + 1;
+    const normalizedFileKeySql = sql<string>`replace(${videoFilesTable.fileKey}, chr(92), '/')`;
 
     const rows = await db.query.videoFilesTable.findMany({
       where: sql<boolean>`
         ${videoFilesTable.fileDirId} = ${fileDirId}
-        and ${videoFilesTable.fileKey} like ${prefixLike}
-        and position('/' in substring(${videoFilesTable.fileKey} from ${startPos})) = 0
+        and ${normalizedFileKeySql} like ${prefixLike}
+        and position('/' in substring(${normalizedFileKeySql} from ${startPos})) = 0
         ${cursor ? sql`and ${videoFilesTable.fileKey} > ${cursor}` : sql``}
       `,
       orderBy: [asc(videoFilesTable.fileKey)],
