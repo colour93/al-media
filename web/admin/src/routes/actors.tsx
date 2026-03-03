@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { Box, Typography, Button, TextField, Chip } from '@mui/material';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { Box, Typography, Button, TextField, Chip, Checkbox, MenuItem } from '@mui/material';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
 import { FormDialog } from '../components/FormDialog/FormDialog';
 import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
@@ -40,15 +39,6 @@ function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
   return Array.from(map.values());
 }
 
-function parseIdList(value: string): number[] {
-  return [...new Set(
-    value
-      .split(/[,\s，]+/)
-      .map((it) => Number(it.trim()))
-      .filter((id) => Number.isInteger(id) && id > 0)
-  )];
-}
-
 function ActorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { page, pageSize, keyword, sortBy, sortOrder, editId } = Route.useSearch();
@@ -60,14 +50,12 @@ function ActorsPage() {
   const deleteMut = useActorDelete();
   const mergeMut = useActorMerge();
 
-
-
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Actor | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Actor | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
-  const [mergeTargetIdInput, setMergeTargetIdInput] = useState('');
-  const [mergeSourceIdsInput, setMergeSourceIdsInput] = useState('');
+  const [selectedActorIds, setSelectedActorIds] = useState<Set<number>>(new Set());
+  const [mergeTargetId, setMergeTargetId] = useState<number | ''>('');
   const [formName, setFormName] = useState('');
   const [formAvatarKey, setFormAvatarKey] = useState<string | null>(null);
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
@@ -82,13 +70,70 @@ function ActorsPage() {
   }, [keyword]);
 
   const tags = useMemo(
-    () =>
-      mergeById(
-        (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[],
-        additionalTags
-      ),
+    () => mergeById((tagsData?.items ?? []) as (Tag & { tagType?: TagType })[], additionalTags),
     [tagsData?.items, additionalTags]
   );
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
+
+  const selectedTags = tags.filter((t) => formTagIds.includes(t.id));
+  const selectedActors = useMemo(
+    () => items.filter((actor) => selectedActorIds.has(actor.id)),
+    [items, selectedActorIds]
+  );
+  const selectedOnPageCount = selectedActors.length;
+  const allOnPageSelected = items.length > 0 && selectedOnPageCount === items.length;
+  const someOnPageSelected = selectedOnPageCount > 0 && selectedOnPageCount < items.length;
+  const mergeSourceIds = useMemo(
+    () =>
+      typeof mergeTargetId === 'number'
+        ? selectedActors.map((actor) => actor.id).filter((id) => id !== mergeTargetId)
+        : [],
+    [mergeTargetId, selectedActors]
+  );
+  const mergeValid = typeof mergeTargetId === 'number' && mergeSourceIds.length > 0;
+
+  useEffect(() => {
+    if (actorDetail?.tags) {
+      setAdditionalTags((prev) => mergeById(prev, actorDetail.tags as (Tag & { tagType?: TagType })[]));
+      setFormTagIds(actorDetail.tags.map((t) => t.id));
+    }
+  }, [actorDetail?.tags]);
+
+  useEffect(() => {
+    if (editId && actorDetail) {
+      setEditing(actorDetail);
+      setFormName(actorDetail.name);
+      setFormAvatarKey(actorDetail.avatarKey ?? null);
+      setFormOpen(true);
+    }
+  }, [editId, actorDetail]);
+
+  useEffect(() => {
+    const pageIds = new Set(items.map((actor) => actor.id));
+    setSelectedActorIds((prev) => {
+      const next = new Set<number>();
+      let changed = false;
+      for (const id of prev) {
+        if (pageIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [items]);
+
+  useEffect(() => {
+    if (!mergeOpen) return;
+    if (selectedActors.length < 2) {
+      setMergeOpen(false);
+      setMergeTargetId('');
+      return;
+    }
+    if (typeof mergeTargetId !== 'number' || !selectedActors.some((actor) => actor.id === mergeTargetId)) {
+      setMergeTargetId(selectedActors[0]?.id ?? '');
+    }
+  }, [mergeOpen, mergeTargetId, selectedActors]);
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -107,24 +152,6 @@ function ActorsPage() {
     setAdditionalTags((row.tags ?? []) as (Tag & { tagType?: TagType })[]);
     setFormOpen(true);
   };
-
-  useEffect(() => {
-    if (actorDetail?.tags) {
-      setAdditionalTags((prev) =>
-        mergeById(prev, actorDetail.tags as (Tag & { tagType?: TagType })[])
-      );
-      setFormTagIds(actorDetail.tags.map((t) => t.id));
-    }
-  }, [actorDetail?.tags]);
-
-  useEffect(() => {
-    if (editId && actorDetail) {
-      setEditing(actorDetail);
-      setFormName(actorDetail.name);
-      setFormAvatarKey(actorDetail.avatarKey ?? null);
-      setFormOpen(true);
-    }
-  }, [editId, actorDetail]);
 
   const handleFormClose = () => {
     setFormOpen(false);
@@ -161,7 +188,67 @@ function ActorsPage() {
     setDeleteTarget(null);
   };
 
+  const toggleActorSelect = (id: number) => {
+    setSelectedActorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllActors = () => {
+    setSelectedActorIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        for (const actor of items) next.delete(actor.id);
+      } else {
+        for (const actor of items) next.add(actor.id);
+      }
+      return next;
+    });
+  };
+
+  const handleOpenMerge = () => {
+    if (selectedActors.length < 2) return;
+    setMergeTargetId(selectedActors[0]?.id ?? '');
+    setMergeOpen(true);
+  };
+
+  const handleMergeClose = () => {
+    setMergeOpen(false);
+    setMergeTargetId('');
+  };
+
+  const handleMergeSubmit = async () => {
+    if (!mergeValid || typeof mergeTargetId !== 'number') return;
+    await mergeMut.mutateAsync({ targetId: mergeTargetId, sourceIds: mergeSourceIds });
+    setMergeOpen(false);
+    setMergeTargetId('');
+    setSelectedActorIds(new Set());
+  };
+
   const columns: DataTableColumn<Actor>[] = [
+    {
+      id: '_select',
+      label: (
+        <Checkbox
+          size="small"
+          checked={allOnPageSelected}
+          indeterminate={someOnPageSelected}
+          onChange={toggleSelectAllActors}
+        />
+      ),
+      width: 48,
+      align: 'center' as const,
+      render: (r) => (
+        <Checkbox
+          size="small"
+          checked={selectedActorIds.has(r.id)}
+          onChange={() => toggleActorSelect(r.id)}
+        />
+      ),
+    },
     { id: 'id', label: 'ID', width: 80, render: (r) => r.id, sortable: true, sortKey: 'id' },
     {
       id: 'avatar',
@@ -187,26 +274,6 @@ function ActorsPage() {
     },
   ];
 
-  const items = data?.items ?? [];
-  const total = data?.total ?? 0;
-
-  const selectedTags = tags.filter((t) => formTagIds.includes(t.id));
-  const mergeTargetId = Number(mergeTargetIdInput);
-  const mergeSourceIds = useMemo(() => parseIdList(mergeSourceIdsInput), [mergeSourceIdsInput]);
-  const mergeValid =
-    Number.isInteger(mergeTargetId) &&
-    mergeTargetId > 0 &&
-    mergeSourceIds.length > 0 &&
-    !mergeSourceIds.includes(mergeTargetId);
-
-  const handleMergeSubmit = async () => {
-    if (!mergeValid) return;
-    await mergeMut.mutateAsync({ targetId: mergeTargetId, sourceIds: mergeSourceIds });
-    setMergeOpen(false);
-    setMergeTargetIdInput('');
-    setMergeSourceIdsInput('');
-  };
-
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -214,15 +281,8 @@ function ActorsPage() {
           演员
         </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            onClick={() => {
-              setMergeTargetIdInput('');
-              setMergeSourceIdsInput('');
-              setMergeOpen(true);
-            }}
-          >
-            快速合并
+          <Button variant="outlined" disabled={selectedActors.length < 2} onClick={handleOpenMerge}>
+            快速合并 ({selectedActors.length})
           </Button>
           <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
             新建
@@ -242,7 +302,7 @@ function ActorsPage() {
           navigate({ search: (prev) => ({ ...prev, pageSize: ps, page: 1 }) })
         }
         loading={isLoading}
-        searchPlaceholder="搜索演员…"
+        searchPlaceholder="搜索演员..."
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
         onSearch={(k) => navigate({ search: (prev) => ({ ...prev, keyword: k, page: 1 }) })}
@@ -289,11 +349,7 @@ function ActorsPage() {
             <Typography variant="body2" color="text.secondary" gutterBottom>
               头像
             </Typography>
-            <FileUpload
-              category="avatars"
-              value={formAvatarKey}
-              onChange={setFormAvatarKey}
-            />
+            <FileUpload category="avatars" value={formAvatarKey} onChange={setFormAvatarKey} />
           </Box>
           <EntityCreateAutocomplete<Tag & { tagType?: TagType }>
             label="标签"
@@ -303,17 +359,11 @@ function ActorsPage() {
             onChange={setFormTagIds}
             pageSize={ENTITY_SELECTOR_PAGE_SIZE}
             loadOptions={({ keyword, page, pageSize }) =>
-              keyword.trim()
-                ? searchTags(keyword.trim(), page, pageSize)
-                : fetchTagsList(page, pageSize)
+              keyword.trim() ? searchTags(keyword.trim(), page, pageSize) : fetchTagsList(page, pageSize)
             }
             getOptionLabel={(t) => t.name}
             renderOption={(_, t) => (
-              <EntityPreview
-                entityType="tag"
-                entity={t as Tag & { tagType?: TagType }}
-                inline
-              />
+              <EntityPreview entityType="tag" entity={t as Tag & { tagType?: TagType }} inline />
             )}
             renderTags={(value, getTagProps) =>
               value.map((t, index) => {
@@ -321,16 +371,13 @@ function ActorsPage() {
                 const iconEl = tagWithType.tagType?.icon
                   ? renderLucideIcon(tagWithType.tagType.icon, { size: 12 })
                   : null;
-                const label =
-                  tagWithType.tagType?.name
-                    ? `${tagWithType.tagType.name}: ${t.name}`
-                    : t.name;
+                const label = tagWithType.tagType?.name ? `${tagWithType.tagType.name}: ${t.name}` : t.name;
                 return (
                   <Chip
                     {...getTagProps({ index })}
                     key={t.id}
                     size="small"
-                    icon={iconEl ? (iconEl as React.ReactElement) : undefined}
+                    icon={iconEl ? (iconEl as ReactElement) : undefined}
                     label={label}
                     sx={{
                       bgcolor: t.color ?? 'action.selected',
@@ -347,35 +394,38 @@ function ActorsPage() {
       <FormDialog
         open={mergeOpen}
         title="快速合并演员"
-        onClose={() => setMergeOpen(false)}
+        onClose={handleMergeClose}
         onSubmit={handleMergeSubmit}
         loading={mergeMut.isPending}
         submitDisabled={!mergeValid}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            已选择 {selectedActors.length} 个演员。请选择一个作为目标，其余将合并到该目标。
+          </Typography>
           <TextField
-            label="目标演员 ID"
-            value={mergeTargetIdInput}
-            onChange={(e) => setMergeTargetIdInput(e.target.value)}
+            select
+            label="目标演员"
+            value={mergeTargetId}
+            onChange={(e) => setMergeTargetId(Number(e.target.value))}
             required
             fullWidth
-            placeholder="例如 101"
-          />
-          <TextField
-            label="待合并 ID（逗号/空格分隔）"
-            value={mergeSourceIdsInput}
-            onChange={(e) => setMergeSourceIdsInput(e.target.value)}
-            required
-            fullWidth
-            placeholder="例如 102,103,104"
-            helperText="会将待合并演员的视频关联、标签、创作者关联迁移到目标 ID"
-          />
+          >
+            {selectedActors.map((actor) => (
+              <MenuItem key={actor.id} value={actor.id}>
+                {actor.name} (ID: {actor.id})
+              </MenuItem>
+            ))}
+          </TextField>
+          <Typography variant="body2" color="text.secondary">
+            待合并 ID: {mergeSourceIds.length > 0 ? mergeSourceIds.join(', ') : '-'}
+          </Typography>
         </Box>
       </FormDialog>
 
       <DeleteConfirm
         open={!!deleteTarget}
-        message={deleteTarget ? `确定要删除「${deleteTarget.name}」吗？` : ''}
+        message={deleteTarget ? `确定要删除“${deleteTarget.name}”吗？` : ''}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDeleteConfirm}
         loading={deleteMut.isPending}
@@ -383,4 +433,3 @@ function ActorsPage() {
     </Box>
   );
 }
-

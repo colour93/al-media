@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { Box, Typography, Button } from '@mui/material';
+import { useState, useEffect, useMemo } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { Box, Typography, Button, TextField, Checkbox, MenuItem } from '@mui/material';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
 import { FormDialog } from '../components/FormDialog/FormDialog';
 import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
@@ -16,21 +15,11 @@ import {
 } from '../hooks/useDistributors';
 import { validateListSearch } from '../schemas/listSearch';
 import type { Distributor } from '../api/types';
-import { TextField } from '@mui/material';
 
 export const Route = createFileRoute('/distributors')({
   validateSearch: validateListSearch,
   component: DistributorsPage,
 });
-
-function parseIdList(value: string): number[] {
-  return [...new Set(
-    value
-      .split(/[,\s，]+/)
-      .map((it) => Number(it.trim()))
-      .filter((id) => Number.isInteger(id) && id > 0)
-  )];
-}
 
 function DistributorsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
@@ -44,16 +33,76 @@ function DistributorsPage() {
   const mergeMut = useDistributorMerge();
 
   const [searchDraft, setSearchDraft] = useState(keyword);
-  useEffect(() => {setSearchDraft(keyword)}, [keyword]);
+  useEffect(() => {
+    setSearchDraft(keyword);
+  }, [keyword]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Distributor | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Distributor | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
-  const [mergeTargetIdInput, setMergeTargetIdInput] = useState('');
-  const [mergeSourceIdsInput, setMergeSourceIdsInput] = useState('');
+  const [selectedDistributorIds, setSelectedDistributorIds] = useState<Set<number>>(new Set());
+  const [mergeTargetId, setMergeTargetId] = useState<number | ''>('');
   const [formName, setFormName] = useState('');
   const [formDomain, setFormDomain] = useState('');
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
+
+  const selectedDistributors = useMemo(
+    () => items.filter((distributor) => selectedDistributorIds.has(distributor.id)),
+    [items, selectedDistributorIds]
+  );
+  const selectedOnPageCount = selectedDistributors.length;
+  const allOnPageSelected = items.length > 0 && selectedOnPageCount === items.length;
+  const someOnPageSelected = selectedOnPageCount > 0 && selectedOnPageCount < items.length;
+  const mergeSourceIds = useMemo(
+    () =>
+      typeof mergeTargetId === 'number'
+        ? selectedDistributors
+            .map((distributor) => distributor.id)
+            .filter((id) => id !== mergeTargetId)
+        : [],
+    [mergeTargetId, selectedDistributors]
+  );
+  const mergeValid = typeof mergeTargetId === 'number' && mergeSourceIds.length > 0;
+
+  useEffect(() => {
+    if (editId && distributorDetail) {
+      setEditing(distributorDetail);
+      setFormName(distributorDetail.name);
+      setFormDomain(distributorDetail.domain ?? '');
+      setFormOpen(true);
+    }
+  }, [editId, distributorDetail]);
+
+  useEffect(() => {
+    const pageIds = new Set(items.map((distributor) => distributor.id));
+    setSelectedDistributorIds((prev) => {
+      const next = new Set<number>();
+      let changed = false;
+      for (const id of prev) {
+        if (pageIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [items]);
+
+  useEffect(() => {
+    if (!mergeOpen) return;
+    if (selectedDistributors.length < 2) {
+      setMergeOpen(false);
+      setMergeTargetId('');
+      return;
+    }
+    if (
+      typeof mergeTargetId !== 'number' ||
+      !selectedDistributors.some((distributor) => distributor.id === mergeTargetId)
+    ) {
+      setMergeTargetId(selectedDistributors[0]?.id ?? '');
+    }
+  }, [mergeOpen, mergeTargetId, selectedDistributors]);
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -68,15 +117,6 @@ function DistributorsPage() {
     setFormDomain(row.domain ?? '');
     setFormOpen(true);
   };
-
-  useEffect(() => {
-    if (editId && distributorDetail) {
-      setEditing(distributorDetail);
-      setFormName(distributorDetail.name);
-      setFormDomain(distributorDetail.domain ?? '');
-      setFormOpen(true);
-    }
-  }, [editId, distributorDetail]);
 
   const handleFormClose = () => {
     setFormOpen(false);
@@ -102,29 +142,71 @@ function DistributorsPage() {
     setDeleteTarget(null);
   };
 
+  const toggleDistributorSelect = (id: number) => {
+    setSelectedDistributorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllDistributors = () => {
+    setSelectedDistributorIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        for (const distributor of items) next.delete(distributor.id);
+      } else {
+        for (const distributor of items) next.add(distributor.id);
+      }
+      return next;
+    });
+  };
+
+  const handleOpenMerge = () => {
+    if (selectedDistributors.length < 2) return;
+    setMergeTargetId(selectedDistributors[0]?.id ?? '');
+    setMergeOpen(true);
+  };
+
+  const handleMergeClose = () => {
+    setMergeOpen(false);
+    setMergeTargetId('');
+  };
+
+  const handleMergeSubmit = async () => {
+    if (!mergeValid || typeof mergeTargetId !== 'number') return;
+    await mergeMut.mutateAsync({ targetId: mergeTargetId, sourceIds: mergeSourceIds });
+    setMergeOpen(false);
+    setMergeTargetId('');
+    setSelectedDistributorIds(new Set());
+  };
+
   const columns: DataTableColumn<Distributor>[] = [
+    {
+      id: '_select',
+      label: (
+        <Checkbox
+          size="small"
+          checked={allOnPageSelected}
+          indeterminate={someOnPageSelected}
+          onChange={toggleSelectAllDistributors}
+        />
+      ),
+      width: 48,
+      align: 'center' as const,
+      render: (r) => (
+        <Checkbox
+          size="small"
+          checked={selectedDistributorIds.has(r.id)}
+          onChange={() => toggleDistributorSelect(r.id)}
+        />
+      ),
+    },
     { id: 'id', label: 'ID', width: 80, render: (r) => r.id },
     { id: 'name', label: '名称', render: (r) => r.name },
     { id: 'domain', label: '域名', render: (r) => r.domain ?? '-' },
   ];
-
-  const items = data?.items ?? [];
-  const total = data?.total ?? 0;
-  const mergeTargetId = Number(mergeTargetIdInput);
-  const mergeSourceIds = parseIdList(mergeSourceIdsInput);
-  const mergeValid =
-    Number.isInteger(mergeTargetId) &&
-    mergeTargetId > 0 &&
-    mergeSourceIds.length > 0 &&
-    !mergeSourceIds.includes(mergeTargetId);
-
-  const handleMergeSubmit = async () => {
-    if (!mergeValid) return;
-    await mergeMut.mutateAsync({ targetId: mergeTargetId, sourceIds: mergeSourceIds });
-    setMergeOpen(false);
-    setMergeTargetIdInput('');
-    setMergeSourceIdsInput('');
-  };
 
   return (
     <Box>
@@ -133,15 +215,8 @@ function DistributorsPage() {
           发行方
         </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            onClick={() => {
-              setMergeTargetIdInput('');
-              setMergeSourceIdsInput('');
-              setMergeOpen(true);
-            }}
-          >
-            快速合并
+          <Button variant="outlined" disabled={selectedDistributors.length < 2} onClick={handleOpenMerge}>
+            快速合并 ({selectedDistributors.length})
           </Button>
           <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
             新建
@@ -161,7 +236,7 @@ function DistributorsPage() {
           navigate({ search: (prev) => ({ ...prev, pageSize: ps, page: 1 }) })
         }
         loading={isLoading}
-        searchPlaceholder="搜索发行方…"
+        searchPlaceholder="搜索发行方..."
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
         onSearch={(k) => navigate({ search: (prev) => ({ ...prev, keyword: k, page: 1 }) })}
@@ -212,35 +287,38 @@ function DistributorsPage() {
       <FormDialog
         open={mergeOpen}
         title="快速合并发行方"
-        onClose={() => setMergeOpen(false)}
+        onClose={handleMergeClose}
         onSubmit={handleMergeSubmit}
         loading={mergeMut.isPending}
         submitDisabled={!mergeValid}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            已选择 {selectedDistributors.length} 个发行方。请选择一个作为目标，其余将合并到该目标。
+          </Typography>
           <TextField
-            label="目标发行方 ID"
-            value={mergeTargetIdInput}
-            onChange={(e) => setMergeTargetIdInput(e.target.value)}
+            select
+            label="目标发行方"
+            value={mergeTargetId}
+            onChange={(e) => setMergeTargetId(Number(e.target.value))}
             required
             fullWidth
-            placeholder="例如 301"
-          />
-          <TextField
-            label="待合并 ID（逗号/空格分隔）"
-            value={mergeSourceIdsInput}
-            onChange={(e) => setMergeSourceIdsInput(e.target.value)}
-            required
-            fullWidth
-            placeholder="例如 302,303,304"
-            helperText="会将待合并发行方的视频关联迁移到目标 ID"
-          />
+          >
+            {selectedDistributors.map((distributor) => (
+              <MenuItem key={distributor.id} value={distributor.id}>
+                {distributor.name} (ID: {distributor.id})
+              </MenuItem>
+            ))}
+          </TextField>
+          <Typography variant="body2" color="text.secondary">
+            待合并 ID: {mergeSourceIds.length > 0 ? mergeSourceIds.join(', ') : '-'}
+          </Typography>
         </Box>
       </FormDialog>
 
       <DeleteConfirm
         open={!!deleteTarget}
-        message={deleteTarget ? `确定要删除「${deleteTarget.name}」吗？` : ''}
+        message={deleteTarget ? `确定要删除“${deleteTarget.name}”吗？` : ''}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDeleteConfirm}
         loading={deleteMut.isPending}
@@ -248,4 +326,3 @@ function DistributorsPage() {
     </Box>
   );
 }
-
