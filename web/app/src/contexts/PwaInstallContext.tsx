@@ -129,9 +129,75 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     }
 
     if (!window.isSecureContext) return;
-    void navigator.serviceWorker.register('/service-worker.js').catch(() => {
-      // ignore service worker registration errors
-    });
+    const hadControllerAtStart = !!navigator.serviceWorker.controller;
+    let disposed = false;
+    let reloading = false;
+    let updateTimer: number | undefined;
+    let registrationRef: ServiceWorkerRegistration | null = null;
+    let handleControllerChange: (() => void) | null = null;
+    let handleUpdateFound: (() => void) | null = null;
+
+    const requestSkipWaiting = () => {
+      const waiting = registrationRef?.waiting;
+      if (waiting) {
+        waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    };
+
+    const watchInstallingWorker = (worker: ServiceWorker | null) => {
+      if (!worker) return;
+      worker.addEventListener('statechange', () => {
+        if (worker.state !== 'installed') return;
+        if (!navigator.serviceWorker.controller) return;
+        requestSkipWaiting();
+      });
+    };
+
+    void navigator.serviceWorker
+      .register('/service-worker.js')
+      .then((registration) => {
+        if (disposed) return;
+        registrationRef = registration;
+
+        handleControllerChange = () => {
+          if (!hadControllerAtStart) return;
+          if (reloading) return;
+          reloading = true;
+          window.location.reload();
+        };
+        navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+
+        handleUpdateFound = () => {
+          watchInstallingWorker(registration.installing);
+        };
+        registration.addEventListener('updatefound', handleUpdateFound);
+        watchInstallingWorker(registration.installing);
+
+        if (registration.waiting && navigator.serviceWorker.controller) {
+          requestSkipWaiting();
+        }
+
+        updateTimer = window.setInterval(() => {
+          void registration.update();
+        }, 5 * 60 * 1000);
+        void registration.update();
+      })
+      .catch(() => {
+        // ignore service worker registration errors
+      });
+
+    return () => {
+      disposed = true;
+      if (updateTimer != null) {
+        window.clearInterval(updateTimer);
+      }
+      if (handleControllerChange) {
+        navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      }
+      if (handleUpdateFound && registrationRef) {
+        registrationRef.removeEventListener('updatefound', handleUpdateFound);
+      }
+    };
   }, []);
 
   const dismissAutoPrompt = useCallback(() => {

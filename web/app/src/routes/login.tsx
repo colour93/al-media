@@ -7,11 +7,6 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 });
 
-function getErrorFromSearch(search: string): string | undefined {
-  const params = new URLSearchParams(search);
-  return params.get('error') ?? undefined;
-}
-
 const ERROR_MESSAGES: Record<string, string> = {
   oidc_not_configured: 'OIDC 未配置',
   missing_params: '登录参数缺失',
@@ -24,7 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 function LoginPage() {
   const location = useLocation();
-  const errorKey = getErrorFromSearch(location.search);
+  const errorKey = location.search.error;
   const errorMsg = errorKey ? ERROR_MESSAGES[errorKey] ?? '登录失败' : undefined;
 
   const handleLogin = () => {
@@ -43,10 +38,10 @@ function LoginPage() {
     >
       <Paper sx={{ p: 4, maxWidth: 400, width: '100%' }}>
         <Typography variant="h5" fontWeight={600} gutterBottom textAlign="center">
-          登录
+          用户登录
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }} textAlign="center">
-          使用 OIDC 账号登录
+          登录以继续
         </Typography>
         {errorMsg && (
           <Typography
@@ -65,7 +60,7 @@ function LoginPage() {
           onClick={handleLogin}
           sx={{ py: 1.5 }}
         >
-          OIDC 登录
+          登录
         </Button>
       </Paper>
     </Box>

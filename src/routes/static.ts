@@ -21,6 +21,7 @@ const appDistDir = resolveDistDir(process.env.APP_DIST_DIR, APP_DIST_CANDIDATES)
 const adminDistDir = resolveDistDir(process.env.ADMIN_DIST_DIR, ADMIN_DIST_CANDIDATES);
 
 const appIndexFile = resolve(appDistDir, "index.html");
+const appServiceWorkerFile = resolve(appDistDir, "service-worker.js");
 const adminIndexFile = resolve(adminDistDir, "index.html");
 
 const hasAppDist = existsSync(appIndexFile);
@@ -76,12 +77,25 @@ function serveAppIndex(set: { headers: Record<string, string> }): Response {
   return new Response(Bun.file(appIndexFile));
 }
 
+function serveAppServiceWorker(set: { headers: Record<string, string> }): Response | string {
+  if (!existsSync(appServiceWorkerFile)) {
+    set.status = 404;
+    return "Not Found";
+  }
+  set.headers["Cache-Control"] = "no-cache";
+  return new Response(Bun.file(appServiceWorkerFile));
+}
+
 function serveAdminIndex(set: { headers: Record<string, string> }): Response {
   set.headers["Cache-Control"] = "no-cache";
   return new Response(Bun.file(adminIndexFile));
 }
 
 export const staticRoutes = new Elysia({ name: "static-routes" })
+  .get("/service-worker.js", ({ set }) => {
+    if (!hasAppDist) return notBuiltResponse("app");
+    return serveAppServiceWorker(set);
+  })
   .get("/static/*", ({ request, set }) => {
     if (!hasAppDist) return notBuiltResponse("app");
     const pathname = new URL(request.url).pathname;

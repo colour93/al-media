@@ -1,10 +1,15 @@
-import { createRootRoute, redirect, Outlet, useRouterState } from '@tanstack/react-router';
-import { AppLayout } from '../components/AppLayout/AppLayout';
-import { fetchAuthConfig, fetchAuthMe } from '../api/auth';
+import {
+  createRootRoute,
+  redirect,
+  Outlet,
+  useRouterState,
+} from "@tanstack/react-router";
+import { AppLayout } from "../components/AppLayout/AppLayout";
+import { fetchAuthConfig, fetchAuthMe } from "../api/auth";
 
 function RootComponent() {
   const { location } = useRouterState();
-  if (location.pathname === '/login') {
+  if (location.pathname === "/login") {
     return <Outlet />;
   }
   return <AppLayout />;
@@ -12,12 +17,12 @@ function RootComponent() {
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
-    if (location.pathname === '/login') return;
+    if (location.pathname === "/login") return;
     const config = await fetchAuthConfig();
     if (!config.requireLogin) return;
     const user = await fetchAuthMe();
     if (!user) {
-      throw redirect({ to: '/login' });
+      throw redirect({ to: "/login" });
     }
   },
   component: RootComponent,

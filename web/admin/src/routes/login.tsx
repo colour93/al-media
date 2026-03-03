@@ -7,15 +7,10 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 });
 
-function getErrorFromSearch(search: string): string | undefined {
-  const params = new URLSearchParams(search);
-  return params.get('error') ?? undefined;
-}
-
 const ERROR_MESSAGES: Record<string, string> = {
   oidc_not_configured: 'OIDC 未配置',
   missing_params: '登录参数缺失',
-  no_pkce_state: '登录会话已过期或未传递 Cookie。请确保 Keycloak 的回调 URI 配置为：http://localhost:39995/api/auth/oidc/callback（与 Admin 同源），并重试',
+  no_pkce_state: '登录会话已过期或未传递 Cookie。请确保 Keycloak 的回调 URI 配置为：{BASE_URL}/api/auth/oidc/callback（与 Admin 同源），并重试',
   invalid_pkce: '登录数据无效。请清除浏览器 Cookie 或使用无痕模式重试',
   state_mismatch: '安全校验失败',
   token_exchange_failed: '令牌交换失败',
@@ -24,7 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 function LoginPage() {
   const location = useLocation();
-  const errorKey = getErrorFromSearch(location.search);
+  const errorKey = location.search.error;
   const errorMsg = errorKey ? ERROR_MESSAGES[errorKey] ?? '登录失败' : undefined;
 
   const handleLogin = () => {
@@ -46,7 +41,7 @@ function LoginPage() {
           管理端登录
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }} textAlign="center">
-          使用 OIDC 账号登录
+          登录
         </Typography>
         {errorMsg && (
           <Typography
@@ -65,7 +60,7 @@ function LoginPage() {
           onClick={handleLogin}
           sx={{ py: 1.5 }}
         >
-          OIDC 登录
+          登录
         </Button>
       </Paper>
     </Box>

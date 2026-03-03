@@ -5,6 +5,7 @@ export interface ListSearchParams {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   editId?: number;
+  error?: string;
 }
 
 export const MAX_PAGE_SIZE = 100;

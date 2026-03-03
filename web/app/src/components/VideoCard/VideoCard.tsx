@@ -44,7 +44,7 @@ export function VideoCard({ video, showActors = true }: VideoCardProps) {
       sx={{
         cursor: "pointer",
         width: "100%",
-        // height: '100%',
+        height: showActors ? '100%' : 'auto',
         textDecoration: "none",
         color: "inherit",
         display: "flex",
