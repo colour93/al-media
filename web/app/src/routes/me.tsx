@@ -221,7 +221,11 @@ function MePage() {
               <Button
                 variant="outlined"
                 startIcon={<ExternalLink size={18} />}
-                href={metadata!.adminPanelUrl}
+                href={
+                  adminSameOrigin
+                    ? metadata!.adminPanelUrl + "/"
+                    : metadata!.adminPanelUrl
+                }
                 {...(adminSameOrigin
                   ? {}
                   : { target: "_blank", rel: "noopener noreferrer" })}
