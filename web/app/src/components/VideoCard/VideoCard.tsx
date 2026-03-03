@@ -1,4 +1,4 @@
-import { Card, CardActionArea, CardMedia, CardContent, Typography, Box } from '@mui/material';
+import { Card, CardContent, Typography, Box } from '@mui/material';
 import { Link } from '@tanstack/react-router';
 import { Eye } from 'lucide-react';
 import { getThumbnailUrl } from '../../api/file';
@@ -24,6 +24,9 @@ export function VideoCard({ video, showActors = true }: VideoCardProps) {
   const duration = formatDurationFromSeconds(video.videoDuration);
   const fileSize = formatFileSize(video.fileSize);
   const playCount = formatShortPlayCount(video.playCount);
+  const actors = video.actors ?? [];
+  const visibleActors = actors.slice(0, 2);
+  const hiddenActorCount = Math.max(0, actors.length - visibleActors.length);
 
   return (
     <Card
@@ -33,92 +36,133 @@ export function VideoCard({ video, showActors = true }: VideoCardProps) {
       preload="intent"
       sx={{
         width: '100%',
-        aspectRatio: { xs: '1/0.94', sm: '1/0.9' },
+        height: '100%',
         textDecoration: 'none',
         color: 'inherit',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease',
+        '@media (hover: hover) and (pointer: fine)': {
+          '&:hover': {
+            // transform: 'translateY(-3px)',
+            boxShadow: 6,
+            borderColor: 'primary.main',
+          },
+          // '&:hover .video-card-thumb': {
+          //   transform: 'scale(1.04)',
+          // },
+        },
       }}
     >
-      <CardActionArea sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <Box
+        sx={{
+          position: 'relative',
+          aspectRatio: '16/9',
+          flexShrink: 0,
+          overflow: 'hidden',
+          bgcolor: 'action.hover',
+        }}
+      >
+        <Box
+          component="img"
+          className="video-card-thumb"
+          src={thumbUrl || undefined}
+          alt={video.title}
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transition: 'transform 0.28s ease',
+          }}
+        />
         <Box
           sx={{
-            position: 'relative',
-            aspectRatio: { xs: '16/8.8', sm: '16/9' },
-            flexShrink: 0,
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 40,
+            background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%)',
+          }}
+        />
+        {(duration || fileSize) && (
+          <Typography
+            variant="caption"
+            sx={{
+              position: 'absolute',
+              bottom: 6,
+              right: 6,
+              bgcolor: 'rgba(0,0,0,0.72)',
+              color: 'white',
+              px: 0.75,
+              py: 0.2,
+              borderRadius: 1,
+              lineHeight: 1.2,
+            }}
+          >
+            {[duration, fileSize].filter(Boolean).join(' · ')}
+          </Typography>
+        )}
+      </Box>
+      <CardContent
+        sx={{
+          py: 1.1,
+          px: 1.1,
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100%',
+        }}
+      >
+        <Typography
+          variant="body2"
+          fontWeight={600}
+          title={video.title}
+          sx={{
+            lineHeight: 1.35,
+            minHeight: '2.7em',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
           }}
         >
-          <CardMedia
-            component="img"
-            image={thumbUrl || undefined}
-            alt={video.title}
-            sx={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              bgcolor: 'action.hover',
-            }}
-          />
+          {video.title}
+        </Typography>
+        <Box sx={{ mt: 0.6, display: 'inline-flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
+          <Eye size={12} />
+          <Typography variant="caption" color="inherit">
+            {playCount}
+          </Typography>
+        </Box>
+        {showActors && visibleActors.length > 0 ? (
           <Box
             sx={{
-              position: 'absolute',
-              bottom: 4,
-              left: 4,
-              display: 'inline-flex',
+              display: 'flex',
+              flexWrap: 'wrap',
               alignItems: 'center',
-              gap: 0.5,
-              bgcolor: 'rgba(0,0,0,0.7)',
-              color: 'white',
-              px: 0.5,
-              borderRadius: 0.5,
+              columnGap: 0.35,
+              rowGap: 0.2,
+              mt: 0.6,
             }}
           >
-            <Eye size={11} />
-            <Typography variant="caption" color="inherit">
-              {playCount}
-            </Typography>
+            {visibleActors.map((a) => (
+              <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" compact disableLink />
+            ))}
+            {hiddenActorCount > 0 ? (
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 0.25 }}>
+                +{hiddenActorCount}
+              </Typography>
+            ) : null}
           </Box>
-          {(duration || fileSize) && (
-            <Typography
-              variant="caption"
-              sx={{
-                position: 'absolute',
-                bottom: 4,
-                right: 4,
-                bgcolor: 'rgba(0,0,0,0.7)',
-                color: 'white',
-                px: 0.5,
-                borderRadius: 0.5,
-              }}
-            >
-              {[duration, fileSize].filter(Boolean).join(' · ')}
-            </Typography>
-          )}
-        </Box>
-        <CardContent sx={{ py: 1, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
-          <Typography variant="body2" fontWeight={500} noWrap title={video.title}>
-            {video.title}
-          </Typography>
-          {showActors && (
-            <Box
-              sx={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                columnGap: { xs: 0.25, sm: 0.5 },
-                rowGap: { xs: 0.125, sm: 0.25 },
-                mt: { xs: 0.375, sm: 0.5 },
-              }}
-            >
-              {video.actors?.map((a) => (
-                <EntityPreview key={a.id} entityType="actor" entity={a} size="sm" compact disableLink />
-              ))}
-            </Box>
-          )}
-        </CardContent>
-      </CardActionArea>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }

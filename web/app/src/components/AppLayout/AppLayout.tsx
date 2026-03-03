@@ -17,7 +17,7 @@ import {
   TextField,
   InputAdornment,
 } from '@mui/material';
-import { Home, FolderSearch, Search, User, ArrowLeft, Download } from 'lucide-react';
+import { Home, FolderSearch, Search, User, Download } from 'lucide-react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAuthConfig, fetchAuthMe } from '../../api/auth';
@@ -61,14 +61,7 @@ export function AppLayout() {
 
   const userInitial = (user?.name || user?.email || '?')[0].toUpperCase();
   const siteName = authConfig?.site.name || DEFAULT_SITE_CONFIG.name;
-
-  const handleBack = () => {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    navigate({ to: '/' });
-  };
+  const siteLogo = authConfig?.site.favicon || DEFAULT_SITE_CONFIG.favicon;
 
   const handleInstallPwa = async () => {
     setInstallingPwa(true);
@@ -100,9 +93,32 @@ export function AppLayout() {
         <AppBar position="sticky" color="default" elevation={1}>
           <Container maxWidth="xl">
             <Toolbar disableGutters>
-              <Button onClick={handleBack} startIcon={<ArrowLeft size={18} />} size="small">
-                返回上一页
-              </Button>
+              <Box
+                component={Link}
+                to="/"
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  minWidth: 0,
+                }}
+              >
+                <Box
+                  component="img"
+                  src={siteLogo}
+                  alt={siteName}
+                  sx={{ width: 28, height: 28, borderRadius: 0.8, objectFit: 'cover', flexShrink: 0 }}
+                />
+                <Typography
+                  variant="subtitle1"
+                  fontWeight={700}
+                  sx={{ color: 'primary.main', letterSpacing: -0.2, display: { xs: 'none', sm: 'block' } }}
+                >
+                  {siteName}
+                </Typography>
+              </Box>
               <Box sx={{ ml: 'auto', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                 {isDesktop ? <ThemeModeButton /> : null}
                 <Tooltip title="全局搜索">
@@ -131,13 +147,33 @@ export function AppLayout() {
         <AppBar position="sticky" color="default" elevation={1}>
           <Container maxWidth="xl">
             <Toolbar disableGutters sx={{ gap: 1 }}>
-              <Typography
-                variant="h6"
-                fontWeight={700}
-                sx={{ mr: 2, color: 'primary.main', letterSpacing: -0.5, userSelect: 'none' }}
+              <Box
+                component={Link}
+                to="/"
+                sx={{
+                  mr: 1.5,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  minWidth: 0,
+                }}
               >
-                {siteName}
-              </Typography>
+                <Box
+                  component="img"
+                  src={siteLogo}
+                  alt={siteName}
+                  sx={{ width: 30, height: 30, borderRadius: 0.8, objectFit: 'cover', flexShrink: 0 }}
+                />
+                <Typography
+                  variant="h6"
+                  fontWeight={700}
+                  sx={{ color: 'primary.main', letterSpacing: -0.5, userSelect: 'none' }}
+                >
+                  {siteName}
+                </Typography>
+              </Box>
               <Button
                 component={Link}
                 to="/"
