@@ -1,5 +1,5 @@
 import { Box, Paper } from '@mui/material';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MediaPlayer, MediaPlayerInstance, MediaProvider, type MediaTimeUpdateEventDetail, type PlayerSrc } from '@vidstack/react';
 import { defaultLayoutIcons, DefaultVideoLayout } from '@vidstack/react/player/layouts/default';
 import '@vidstack/react/player/styles/default/theme.css';
@@ -19,12 +19,12 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
   const playerRef = useRef<MediaPlayerInstance | null>(null);
   const onTimeUpdateRef = useRef<typeof onTimeUpdate>(onTimeUpdate);
   const onEndedRef = useRef<typeof onEnded>(onEnded);
-  const pendingSeekRef = useRef<number | null>(null);
   const appliedSeekRef = useRef<number | null>(null);
+  const [isPortraitVideo, setIsPortraitVideo] = useState(false);
 
   useEffect(() => {
-    pendingSeekRef.current = null;
     appliedSeekRef.current = null;
+    setIsPortraitVideo(false);
   }, [src]);
 
   useEffect(() => {
@@ -34,6 +34,19 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
   useEffect(() => {
     onEndedRef.current = onEnded;
   }, [onEnded]);
+
+  const syncVideoOrientation = useCallback(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const stateWidth = Number(player.state.mediaWidth);
+    const stateHeight = Number(player.state.mediaHeight);
+    const media = player.querySelector('video') as HTMLVideoElement | null;
+    const width = stateWidth > 0 ? stateWidth : (media?.videoWidth ?? 0);
+    const height = stateHeight > 0 ? stateHeight : (media?.videoHeight ?? 0);
+    if (!(width > 0 && height > 0)) return;
+    const nextPortrait = height > width;
+    setIsPortraitVideo((prev) => (prev === nextPortrait ? prev : nextPortrait));
+  }, []);
 
   const seekIfNeeded = () => {
     if (initialSeekSeconds == null || initialSeekSeconds <= 0 || !playerRef.current) return;
@@ -46,7 +59,6 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
         : target;
     playerRef.current.currentTime = safeTarget;
     appliedSeekRef.current = safeTarget;
-    pendingSeekRef.current = null;
   };
 
   const onVdsTimeUpdate = (detail: MediaTimeUpdateEventDetail) => {
@@ -56,6 +68,11 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
   };
   const onVdsEnded = () => {
     onEndedRef.current?.();
+  };
+
+  const handleCanPlay = () => {
+    seekIfNeeded();
+    syncVideoOrientation();
   };
 
   return (
@@ -68,6 +85,17 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
         maxWidth: '100%',
         aspectRatio: '16/9',
         bgcolor: 'black',
+        '@media (pointer: coarse)': {
+          '& [data-media-player][data-fullscreen][data-orientation="portrait"][data-portrait-video="true"] [data-media-provider]': {
+            overflow: 'hidden',
+          },
+          '& [data-media-player][data-fullscreen][data-orientation="portrait"][data-portrait-video="true"] [data-media-provider] video': {
+            objectFit: 'cover',
+          },
+          '& [data-media-player][data-fullscreen][data-orientation="portrait"][data-portrait-video="true"] .vds-poster, & [data-media-player][data-fullscreen][data-orientation="portrait"][data-portrait-video="true"] .vds-poster img': {
+            objectFit: 'cover',
+          },
+        },
       }}
     >
       <Box
@@ -79,11 +107,13 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
         }}
       >
         <MediaPlayer
-          onCanPlay={seekIfNeeded}
+          onCanPlay={handleCanPlay}
+          onLoadedMetadata={syncVideoOrientation}
           onTimeUpdate={onVdsTimeUpdate}
           onEnded={onVdsEnded}
           ref={playerRef}
           src={src}
+          data-portrait-video={isPortraitVideo ? 'true' : undefined}
         >
           <MediaProvider />
           <DefaultVideoLayout icons={defaultLayoutIcons} />

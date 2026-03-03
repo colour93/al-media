@@ -4,10 +4,9 @@ import {
   Box,
   Typography,
   CircularProgress,
-  useTheme,
-  useMediaQuery,
   Paper,
   Button,
+  Divider,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { Clock3, Heart } from 'lucide-react';
@@ -71,8 +70,6 @@ function VideoDetailPage() {
   const { id } = Route.useParams();
   const videoId = Number(id);
   const isValidId = Number.isInteger(videoId);
-  const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
 
   const { data: video, isLoading } = useVideo(isValidId ? videoId : null);
   const { data: recommended } = useRecommended();
@@ -170,29 +167,39 @@ function VideoDetailPage() {
   }
 
   const metaParts = [formatDurationFromSeconds(video.videoDuration), formatFileSize(video.fileSize)].filter(Boolean).join(' · ');
+  const hasCreators = (video.creators?.length ?? 0) > 0;
+  const hasActors = (video.actors?.length ?? 0) > 0;
+  const hasTags = (video.tags?.length ?? 0) > 0;
+  const hasDistributors = (video.distributors?.length ?? 0) > 0;
 
   return (
     <Box
       sx={{
-        display: 'flex',
-        flexDirection: isDesktop ? 'row' : 'column',
-        gap: 2,
-        alignItems: 'flex-start',
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1fr) 360px' },
+        gap: { xs: 2, lg: 3 },
+        alignItems: 'start',
       }}
     >
-      <Box sx={{ flex: isDesktop ? '1 1 0' : undefined, minWidth: 0, width: '100%' }}>
-        <Box sx={{ maxWidth: 960, mx: 'auto' }}>
-          {playUrl && (
-            <Box sx={{ mb: 2 }}>
-              <MUIPlayer
-                src={{ src: playUrl, type: sourceType }}
-                fullWidth
-                initialSeekSeconds={resumeSeconds}
-                onTimeUpdate={handleTimeUpdate}
-                onEnded={handleEnded}
-              />
-            </Box>
-          )}
+      <Box sx={{ minWidth: 0 }}>
+        {playUrl && (
+          <Box sx={{ mb: 2 }}>
+            <MUIPlayer
+              src={{ src: playUrl, type: sourceType }}
+              fullWidth
+              initialSeekSeconds={resumeSeconds}
+              onTimeUpdate={handleTimeUpdate}
+              onEnded={handleEnded}
+            />
+          </Box>
+        )}
+        <Paper
+          variant="outlined"
+          sx={{
+            p: { xs: 1.5, md: 2 },
+            borderRadius: 2.5,
+          }}
+        >
           <Typography variant="h5" fontWeight={600} gutterBottom>
             {video.title}
           </Typography>
@@ -223,67 +230,72 @@ function VideoDetailPage() {
               </Typography>
             ) : null}
           </Box>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-            {video.tags?.map((t) => (
-              <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />
-            ))}
-            {video.distributors?.length ? (
-              <Typography variant="body2" color="text.secondary">
-                发行: {video.distributors.map((d) => d.name).join('、')}
-              </Typography>
-            ) : null}
-          </Box>
-        </Box>
-      </Box>
-      {(video.creators?.length || video.actors?.length || sidebarVideos.length > 0) && (
-        <Box
-          sx={{
-            width: isDesktop ? 360 : '100%',
-            flexShrink: 0,
-            ...(isDesktop ? {} : { maxWidth: 480, mx: 'auto' }),
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-          }}
-        >
-          {video.creators?.length ? (
-            <Paper variant="outlined" sx={{ p: 1.5 }}>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                创作者
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {video.creators.map((c) => (
-                  <EntityPreview key={c.id} entityType="creator" entity={c} size="sm" />
-                ))}
-              </Box>
-            </Paper>
-          ) : null}
-          {video.actors?.length ? (
-            <Paper variant="outlined" sx={{ p: 1.5 }}>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                演员
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1.5, justifyContent: 'flex-start' }}>
-                {video.actors.map((a) => (
-                  <EntityPreview key={a.id} entityType="actor" entity={a} size="md" layout="card" />
-                ))}
-              </Box>
-            </Paper>
-          ) : null}
-          {sidebarVideos.length > 0 ? (
-            <Box>
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                推荐
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                {sidebarVideos.map((v) => (
-                  <VideoSidebarCard key={v.id} video={v} />
-                ))}
-              </Box>
+          {hasTags || hasDistributors ? (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+              {video.tags?.map((t) => (
+                <EntityPreview key={t.id} entityType="tag" entity={t} size="sm" />
+              ))}
+              {hasDistributors ? (
+                <Typography variant="body2" color="text.secondary">
+                  发行: {video.distributors?.map((d) => d.name).join('、')}
+                </Typography>
+              ) : null}
             </Box>
           ) : null}
+          {hasCreators || hasActors ? (
+            <>
+              <Divider sx={{ my: 1.5 }} />
+              {hasCreators ? (
+                <Box sx={{ mb: hasActors ? 1.5 : 0 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    创作者
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {video.creators?.map((c) => (
+                      <EntityPreview key={c.id} entityType="creator" entity={c} size="sm" />
+                    ))}
+                  </Box>
+                </Box>
+              ) : null}
+              {hasActors ? (
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    演员
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1.5, justifyContent: 'flex-start' }}>
+                    {video.actors?.map((a) => (
+                      <EntityPreview key={a.id} entityType="actor" entity={a} size="md" layout="card" />
+                    ))}
+                  </Box>
+                </Box>
+              ) : null}
+            </>
+          ) : null}
+        </Paper>
+      </Box>
+      {sidebarVideos.length > 0 ? (
+        <Box
+          sx={{
+            minWidth: 0,
+            width: '100%',
+            maxWidth: { xs: 560, xl: 'none' },
+            mx: { xs: 'auto', xl: 0 },
+            position: { xl: 'sticky' },
+            top: { xl: 84 },
+          }}
+        >
+          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2.5 }}>
+            <Typography variant="subtitle1" fontWeight={700} sx={{ px: 0.5, pb: 0.5 }}>
+              你可能还想看
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {sidebarVideos.map((v) => (
+                <VideoSidebarCard key={v.id} video={v} />
+              ))}
+            </Box>
+          </Paper>
         </Box>
-      )}
+      ) : null}
     </Box>
   );
 }
