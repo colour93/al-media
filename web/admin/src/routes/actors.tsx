@@ -75,7 +75,7 @@ function ActorsPage() {
     [tagsData?.items, additionalTags]
   );
 
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
   const total = data?.total ?? 0;
 
   const selectedTags = tags.filter((t) => formTagIds.includes(t.id));

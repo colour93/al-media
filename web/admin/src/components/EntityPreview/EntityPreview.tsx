@@ -5,7 +5,7 @@ import { getFileUrl } from '../../api/file';
 import { renderLucideIcon } from '../../utils/lucideIcons';
 import { getTagChipSx } from '../../utils/tagChipSx';
 import { formatDurationClock } from '../../utils/format';
-import { useEntityRelated } from '../../contexts/EntityRelatedContext';
+import { useEntityRelated } from '../../hooks/useEntityRelated';
 import type {
   Actor,
   Creator,

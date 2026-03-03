@@ -56,14 +56,20 @@ export async function upsertVideoHistory(
 
 export async function fetchFavoriteVideos(
   page: number,
-  pageSize: number
+  pageSize: number,
+  params?: { q?: string }
 ): Promise<PaginatedResult<VideoDetail>> {
-  return get<PaginatedResult<VideoDetail>>(`${BASE}/favorites`, { page, pageSize });
+  const query: Record<string, string | number> = { page, pageSize };
+  if (params?.q) query.q = params.q;
+  return get<PaginatedResult<VideoDetail>>(`${BASE}/favorites`, query);
 }
 
 export async function fetchWatchHistory(
   page: number,
-  pageSize: number
+  pageSize: number,
+  params?: { q?: string }
 ): Promise<PaginatedResult<VideoHistoryItem>> {
-  return get<PaginatedResult<VideoHistoryItem>>(`${BASE}/history`, { page, pageSize });
+  const query: Record<string, string | number> = { page, pageSize };
+  if (params?.q) query.q = params.q;
+  return get<PaginatedResult<VideoHistoryItem>>(`${BASE}/history`, query);
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { Box, Typography, Button, TextField, MenuItem } from '@mui/material';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
@@ -9,7 +9,6 @@ import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
 import { useTagsList, useTag, useTagCreate, useTagUpdate, useTagDelete } from '../hooks/useTags';
 import { useTagTypesList } from '../hooks/useTagTypes';
 import { ColorPicker } from '../components/ColorPicker/ColorPicker';
-import { getLucideIcon } from '../utils/lucideIcons';
 import { validateListSearch } from '../schemas/listSearch';
 import type { TagWithType } from '../api/tags';
 
@@ -30,7 +29,9 @@ function TagsPage() {
   const deleteMut = useTagDelete();
 
   const [searchDraft, setSearchDraft] = useState(keyword);
-  useEffect(() => {setSearchDraft(keyword)}, [keyword]);
+  useEffect(() => {
+    setSearchDraft(keyword);
+  }, [keyword]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TagWithType | null>(null);
@@ -39,7 +40,7 @@ function TagsPage() {
   const [formTagTypeId, setFormTagTypeId] = useState<number | ''>('');
   const [formColor, setFormColor] = useState<string | null>(null);
 
-  const tagTypes = tagTypesData?.items ?? [];
+  const tagTypes = useMemo(() => tagTypesData?.items ?? [], [tagTypesData?.items]);
 
   const handleOpenCreate = () => {
     setEditing(null);

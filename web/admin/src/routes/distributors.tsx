@@ -46,7 +46,7 @@ function DistributorsPage() {
   const [formName, setFormName] = useState('');
   const [formDomain, setFormDomain] = useState('');
 
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
   const total = data?.total ?? 0;
 
   const selectedDistributors = useMemo(

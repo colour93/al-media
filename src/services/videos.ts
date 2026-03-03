@@ -498,30 +498,49 @@ class VideosService {
   }
 
   async findById(id: number, options?: { useCommonUrl?: boolean; pathOnly?: boolean }) {
-    const item = await db.query.videosTable.findFirst({
-      where: eq(videosTable.id, id),
-      with: videoWithRelations,
-    });
-    if (!item) return null;
-    const shaped = toVideoResponse(item as Parameters<typeof toVideoResponse>[0]);
-    const [videoFileInfo, metaMap] = await Promise.all([
-      this.getVideoFileInfoForVideo(id),
-      this.getVideoFileMetaMap([id]),
+    const rows = await this.findManyByIds([id], options);
+    return rows[0] ?? null;
+  }
+
+  async findManyByIds(
+    videoIds: number[],
+    options?: { useCommonUrl?: boolean; pathOnly?: boolean }
+  ) {
+    const uniqueIds = normalizeIds(videoIds).filter((id) => Number.isInteger(id) && id > 0);
+    if (uniqueIds.length === 0) return [];
+    const [items, videoFileInfoMap, metaMap] = await Promise.all([
+      db.query.videosTable.findMany({
+        where: inArray(videosTable.id, uniqueIds),
+        with: videoWithRelations,
+      }),
+      this.getVideoFileInfoMapForVideos(uniqueIds),
+      this.getVideoFileMetaMap(uniqueIds),
     ]);
-    const videoFileUrl = videoFileInfo
-      ? options?.useCommonUrl
-        ? buildCommonSignedVideoFileUrl(videoFileInfo.id, options.pathOnly ?? false)
-        : buildSignedVideoFileUrl(videoFileInfo.id)
-      : null;
-    const meta = metaMap.get(id);
-    return {
-      ...shaped,
-      videoFileUrl,
-      videoFileKey: videoFileInfo?.fileKey ?? null,
-      ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
-      ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
-      playCount: meta?.playCount ?? 0,
-    };
+    const itemMap = new Map<number, unknown>(
+      (items as Array<{ id: number }>).map((item) => [item.id, item as unknown])
+    );
+    return uniqueIds
+      .map((videoId) => {
+        const item = itemMap.get(videoId) as Parameters<typeof toVideoResponse>[0] | undefined;
+        if (!item) return null;
+        const shaped = toVideoResponse(item);
+        const videoFileInfo = videoFileInfoMap.get(videoId) ?? null;
+        const videoFileUrl = videoFileInfo
+          ? options?.useCommonUrl
+            ? buildCommonSignedVideoFileUrl(videoFileInfo.id, options.pathOnly ?? false)
+            : buildSignedVideoFileUrl(videoFileInfo.id)
+          : null;
+        const meta = metaMap.get(videoId);
+        return {
+          ...shaped,
+          videoFileUrl,
+          videoFileKey: videoFileInfo?.fileKey ?? null,
+          ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
+          ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
+          playCount: meta?.playCount ?? 0,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item != null);
   }
 
   async findRecommended() {
@@ -694,18 +713,33 @@ class VideosService {
   async getVideoFileInfoForVideo(
     videoId: number
   ): Promise<{ id: number; fileKey: string } | null> {
-    const content = await db.query.videoUniqueContentsTable.findFirst({
-      where: eq(videoUniqueContentsTable.videoId, videoId),
-      columns: { uniqueId: true },
-    });
-    if (!content) return null;
-    const videoFile = await db.query.videoFilesTable.findFirst({
-      where: eq(videoFilesTable.uniqueId, content.uniqueId),
-      columns: { id: true, fileKey: true },
-    });
-    return videoFile?.fileKey != null
-      ? { id: videoFile.id, fileKey: videoFile.fileKey }
-      : null;
+    const map = await this.getVideoFileInfoMapForVideos([videoId]);
+    return map.get(videoId) ?? null;
+  }
+
+  /** 批量获取视频关联的 video file id 和 fileKey（通过 video_unique_contents） */
+  async getVideoFileInfoMapForVideos(
+    videoIds: number[]
+  ): Promise<Map<number, { id: number; fileKey: string }>> {
+    const uniqueIds = normalizeIds(videoIds).filter((id) => Number.isInteger(id) && id > 0);
+    if (uniqueIds.length === 0) return new Map();
+    const rows = await db
+      .select({
+        videoId: videoUniqueContentsTable.videoId,
+        id: videoFilesTable.id,
+        fileKey: videoFilesTable.fileKey,
+      })
+      .from(videoUniqueContentsTable)
+      .innerJoin(videoFilesTable, eq(videoFilesTable.uniqueId, videoUniqueContentsTable.uniqueId))
+      .where(inArray(videoUniqueContentsTable.videoId, uniqueIds))
+      .orderBy(videoFilesTable.id);
+    const map = new Map<number, { id: number; fileKey: string }>();
+    for (const row of rows) {
+      if (!map.has(row.videoId)) {
+        map.set(row.videoId, { id: row.id, fileKey: row.fileKey });
+      }
+    }
+    return map;
   }
 
   /** 批量获取视频的时长/文件大小/播放量 */

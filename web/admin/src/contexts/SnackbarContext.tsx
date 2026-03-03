@@ -1,12 +1,6 @@
-import React, { createContext, useCallback, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Snackbar, Alert } from '@mui/material';
-
-interface SnackbarContextValue {
-  showMessage: (msg: string, severity?: 'success' | 'info' | 'warning' | 'error') => void;
-  showError: (msg: string) => void;
-}
-
-export const SnackbarContext = createContext<SnackbarContextValue | null>(null);
+import { SnackbarContext } from './snackbarStore';
 
 export function SnackbarProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);

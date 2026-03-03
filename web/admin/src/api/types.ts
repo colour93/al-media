@@ -172,3 +172,31 @@ export interface Video {
   createdAt: string;
   updatedAt: string;
 }
+
+export type DashboardTimeUnit = 'day' | 'week' | 'month';
+
+export interface DashboardTrendPoint {
+  bucketKey: string;
+  bucketStart: string;
+  label: string;
+  videos: number;
+  videoFiles: number;
+  playCount: number;
+  users: number;
+}
+
+export interface DashboardStats {
+  unit: DashboardTimeUnit;
+  span: number;
+  from: string;
+  to: string;
+  points: DashboardTrendPoint[];
+  totals: {
+    videos: number;
+    videoFiles: number;
+    playCount: number;
+    users: number;
+  };
+  scanTask: VideoFileScanTask | null;
+  inferTask: VideoInferTask;
+}

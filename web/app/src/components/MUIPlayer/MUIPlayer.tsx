@@ -24,7 +24,6 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
 
   useEffect(() => {
     appliedSeekRef.current = null;
-    setIsPortraitVideo(false);
   }, [src]);
 
   useEffect(() => {
@@ -75,6 +74,10 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
     syncVideoOrientation();
   };
 
+  const handleLoadStart = () => {
+    setIsPortraitVideo(false);
+  };
+
   return (
     <Paper
       elevation={2}
@@ -107,6 +110,7 @@ export function MUIPlayer({ fullWidth, initialSeekSeconds, src, onTimeUpdate, on
         }}
       >
         <MediaPlayer
+          onLoadStart={handleLoadStart}
           onCanPlay={handleCanPlay}
           onLoadedMetadata={syncVideoOrientation}
           onTimeUpdate={onVdsTimeUpdate}

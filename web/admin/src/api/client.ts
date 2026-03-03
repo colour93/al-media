@@ -53,7 +53,8 @@ function normalizeRequestParams(params?: RequestParams): RequestParams | undefin
   if (params.pageSize === undefined) return params;
   const n = Number(params.pageSize);
   if (!Number.isFinite(n)) {
-    const { pageSize: _omit, ...rest } = params;
+    const rest = { ...params };
+    delete rest.pageSize;
     return rest;
   }
   return {

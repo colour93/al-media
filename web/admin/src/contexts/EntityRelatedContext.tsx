@@ -1,14 +1,7 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { EntityRelatedDrawer } from '../components/EntityRelatedDrawer/EntityRelatedDrawer';
 import type { Actor, Creator, Tag } from '../api/types';
-
-type DrawerEntityType = 'actor' | 'creator' | 'tag';
-
-interface EntityRelatedContextValue {
-  openRelatedDrawer: (entityType: DrawerEntityType, entity: Actor | Creator | Tag) => void;
-}
-
-const EntityRelatedContext = createContext<EntityRelatedContextValue | null>(null);
+import { EntityRelatedContext, type DrawerEntityType } from './entityRelatedStore';
 
 export function EntityRelatedProvider({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -38,9 +31,4 @@ export function EntityRelatedProvider({ children }: { children: React.ReactNode 
       )}
     </EntityRelatedContext.Provider>
   );
-}
-
-export function useEntityRelated() {
-  const ctx = useContext(EntityRelatedContext);
-  return ctx;
 }

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchVideosList,
   fetchVideo,
@@ -52,6 +52,19 @@ export function useLatest(page: number, pageSize: number) {
   });
 }
 
+export function useLatestInfinite(pageSize: number) {
+  return useInfiniteQuery({
+    queryKey: ['common', 'videos', 'latest', 'infinite', pageSize],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) => fetchLatest(pageParam, pageSize),
+    getNextPageParam: (lastPage, allPages) => {
+      const loadedCount = allPages.reduce((sum, page) => sum + page.items.length, 0);
+      if (loadedCount >= lastPage.total) return undefined;
+      return allPages.length + 1;
+    },
+  });
+}
+
 export function useVideoInteraction(videoId: number | null, enabled = true) {
   return useQuery({
     queryKey: ['common', 'videos', 'interaction', videoId],
@@ -60,22 +73,32 @@ export function useVideoInteraction(videoId: number | null, enabled = true) {
   });
 }
 
-export function useFavoriteVideos(page: number, pageSize: number, enabled = true) {
+export function useFavoriteVideos(
+  page: number,
+  pageSize: number,
+  enabled = true,
+  params?: { q?: string }
+) {
   return useQuery({
-    queryKey: ['common', 'videos', 'favorites', page, pageSize],
-    queryFn: () => fetchFavoriteVideos(page, pageSize),
+    queryKey: ['common', 'videos', 'favorites', page, pageSize, params?.q],
+    queryFn: () => fetchFavoriteVideos(page, pageSize, params),
     enabled,
+    staleTime: 20 * 1000,
   });
 }
 
-export function useWatchHistory(page: number, pageSize: number, enabled = true) {
+export function useWatchHistory(
+  page: number,
+  pageSize: number,
+  enabled = true,
+  params?: { q?: string }
+) {
   return useQuery({
-    queryKey: ['common', 'videos', 'history', page, pageSize],
-    queryFn: () => fetchWatchHistory(page, pageSize),
+    queryKey: ['common', 'videos', 'history', page, pageSize, params?.q],
+    queryFn: () => fetchWatchHistory(page, pageSize, params),
     enabled,
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
+    staleTime: 20 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 

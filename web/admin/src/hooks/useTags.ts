@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchTagsList, searchTags, fetchTag, createTag, updateTag, deleteTag } from '../api/tags';
-import type { TagWithType } from '../api/tags';
 import { useSnackbar } from './useSnackbar';
 
 const KEYS = {

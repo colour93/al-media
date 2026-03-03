@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import { db } from "../db";
 import { userFavoriteVideosTable } from "../entities/UserFavoriteVideo";
 import { userVideoHistoriesTable } from "../entities/UserVideoHistory";
@@ -50,6 +50,23 @@ class UserVideoInteractionsService {
       completed: history.completed,
       lastPlayedAt: history.lastPlayedAt,
     };
+  }
+
+  private normalizeKeyword(keyword?: string) {
+    const value = keyword?.trim();
+    return value ? value : undefined;
+  }
+
+  private async buildVideoMap(videoIds: number[]) {
+    const videos = await videosService.findManyByIds(videoIds, { useCommonUrl: true, pathOnly: true });
+    const map = new Map<number, unknown>();
+    for (const video of videos) {
+      const id = (video as { id?: unknown } | null)?.id;
+      if (video && typeof id === "number") {
+        map.set(id, video);
+      }
+    }
+    return map;
   }
 
   async getInteractionState(userId: number, videoId: number): Promise<VideoInteractionState | null> {
@@ -147,29 +164,37 @@ class UserVideoInteractionsService {
     userId: number,
     page: number,
     pageSize: number,
-    offset: number
+    offset: number,
+    options?: { keyword?: string }
   ): Promise<PaginatedResult<unknown>> {
+    const keyword = this.normalizeKeyword(options?.keyword);
+    const where = keyword
+      ? and(
+          eq(userFavoriteVideosTable.userId, userId),
+          ilike(videosTable.title, `%${keyword}%`)
+        )
+      : eq(userFavoriteVideosTable.userId, userId);
+
     const [rows, total] = await Promise.all([
-      db.query.userFavoriteVideosTable.findMany({
-        where: eq(userFavoriteVideosTable.userId, userId),
-        columns: { videoId: true, createdAt: true },
-        orderBy: (table, op) => [op.desc(table.createdAt), op.desc(table.videoId)],
-        limit: pageSize,
-        offset,
-      }),
-      db.$count(userFavoriteVideosTable, eq(userFavoriteVideosTable.userId, userId)),
+      db
+        .select({
+          videoId: userFavoriteVideosTable.videoId,
+          createdAt: userFavoriteVideosTable.createdAt,
+        })
+        .from(userFavoriteVideosTable)
+        .innerJoin(videosTable, eq(videosTable.id, userFavoriteVideosTable.videoId))
+        .where(where)
+        .orderBy(desc(userFavoriteVideosTable.createdAt), desc(userFavoriteVideosTable.videoId))
+        .limit(pageSize)
+        .offset(offset),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(userFavoriteVideosTable)
+        .innerJoin(videosTable, eq(videosTable.id, userFavoriteVideosTable.videoId))
+        .where(where),
     ]);
 
-    const videos = await Promise.all(
-      rows.map((row) => videosService.findById(row.videoId, { useCommonUrl: true, pathOnly: true }))
-    );
-    const videoMap = new Map<number, unknown>();
-    for (const video of videos) {
-      const id = (video as { id?: unknown } | null)?.id;
-      if (video && typeof id === "number") {
-        videoMap.set(id, video);
-      }
-    }
+    const videoMap = await this.buildVideoMap(rows.map((row) => row.videoId));
     const items = rows
       .map((row) => videoMap.get(row.videoId))
       .filter((item): item is unknown => item != null);
@@ -177,7 +202,7 @@ class UserVideoInteractionsService {
     return {
       page,
       pageSize,
-      total: total ?? 0,
+      total: Number(total[0]?.count ?? 0),
       items,
     };
   }
@@ -186,28 +211,40 @@ class UserVideoInteractionsService {
     userId: number,
     page: number,
     pageSize: number,
-    offset: number
+    offset: number,
+    options?: { keyword?: string }
   ): Promise<PaginatedResult<VideoHistoryListItem>> {
+    const keyword = this.normalizeKeyword(options?.keyword);
+    const where = keyword
+      ? and(
+          eq(userVideoHistoriesTable.userId, userId),
+          ilike(videosTable.title, `%${keyword}%`)
+        )
+      : eq(userVideoHistoriesTable.userId, userId);
+
     const [rows, total] = await Promise.all([
-      db.query.userVideoHistoriesTable.findMany({
-        where: eq(userVideoHistoriesTable.userId, userId),
-        orderBy: [desc(userVideoHistoriesTable.lastPlayedAt), desc(userVideoHistoriesTable.videoId)],
-        limit: pageSize,
-        offset,
-      }),
-      db.$count(userVideoHistoriesTable, eq(userVideoHistoriesTable.userId, userId)),
+      db
+        .select({
+          videoId: userVideoHistoriesTable.videoId,
+          progressSeconds: userVideoHistoriesTable.progressSeconds,
+          durationSeconds: userVideoHistoriesTable.durationSeconds,
+          completed: userVideoHistoriesTable.completed,
+          lastPlayedAt: userVideoHistoriesTable.lastPlayedAt,
+        })
+        .from(userVideoHistoriesTable)
+        .innerJoin(videosTable, eq(videosTable.id, userVideoHistoriesTable.videoId))
+        .where(where)
+        .orderBy(desc(userVideoHistoriesTable.lastPlayedAt), desc(userVideoHistoriesTable.videoId))
+        .limit(pageSize)
+        .offset(offset),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(userVideoHistoriesTable)
+        .innerJoin(videosTable, eq(videosTable.id, userVideoHistoriesTable.videoId))
+        .where(where),
     ]);
 
-    const videos = await Promise.all(
-      rows.map((row) => videosService.findById(row.videoId, { useCommonUrl: true, pathOnly: true }))
-    );
-    const videoMap = new Map<number, unknown>();
-    for (const video of videos) {
-      const id = (video as { id?: unknown } | null)?.id;
-      if (video && typeof id === "number") {
-        videoMap.set(id, video);
-      }
-    }
+    const videoMap = await this.buildVideoMap(rows.map((row) => row.videoId));
 
     const items: VideoHistoryListItem[] = [];
     for (const row of rows) {
@@ -225,7 +262,7 @@ class UserVideoInteractionsService {
     return {
       page,
       pageSize,
-      total: total ?? 0,
+      total: Number(total[0]?.count ?? 0),
       items,
     };
   }

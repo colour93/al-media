@@ -118,10 +118,19 @@ export const commonVideosRoutes = new Elysia({ prefix: "/videos" })
         userId,
         pagination.page,
         pagination.pageSize,
-        pagination.offset
+        pagination.offset,
+        { keyword: query.q }
       );
     },
-    { query: paginationQuerySchema }
+    {
+      query: t.Object({
+        page: t.String({ default: "1" }),
+        pageSize: t.String({ default: "10" }),
+        sortBy: t.Optional(t.String()),
+        sortOrder: t.Optional(t.Union([t.Literal("asc"), t.Literal("desc")])),
+        q: t.Optional(t.String()),
+      }),
+    }
   )
   .get(
     "/history",
@@ -138,10 +147,19 @@ export const commonVideosRoutes = new Elysia({ prefix: "/videos" })
         userId,
         pagination.page,
         pagination.pageSize,
-        pagination.offset
+        pagination.offset,
+        { keyword: query.q }
       );
     },
-    { query: paginationQuerySchema }
+    {
+      query: t.Object({
+        page: t.String({ default: "1" }),
+        pageSize: t.String({ default: "10" }),
+        sortBy: t.Optional(t.String()),
+        sortOrder: t.Optional(t.Union([t.Literal("asc"), t.Literal("desc")])),
+        q: t.Optional(t.String()),
+      }),
+    }
   )
   .get(
     "/:id/interactions",

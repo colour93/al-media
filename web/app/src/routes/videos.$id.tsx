@@ -284,7 +284,7 @@ function VideoDetailPage() {
             top: { xl: 84 },
           }}
         >
-          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2.5 }}>
+          <Paper elevation={0} sx={{ p: 1.25, borderRadius: 2.5 }}>
             <Typography variant="subtitle1" fontWeight={700} sx={{ px: 0.5, pb: 0.5 }}>
               你可能还想看
             </Typography>

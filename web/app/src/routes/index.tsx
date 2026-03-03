@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { Box, Typography, CircularProgress, Button, Paper, Stack } from '@mui/material';
+import { useEffect, useMemo, useRef } from 'react';
+import { Box, Typography, CircularProgress, Button, Paper, Stack, useMediaQuery, useTheme } from '@mui/material';
 import { Link } from '@tanstack/react-router';
 import { Clapperboard, Clock3, Sparkles } from 'lucide-react';
 import { HomeBanner } from '../components/HomeBanner/HomeBanner';
 import { VideoCard } from '../components/VideoCard/VideoCard';
-import { useHomeData } from '../hooks/useHomeData';
+import { useBanner, useLatestInfinite, useRecommended } from '../hooks/useVideos';
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -33,7 +34,63 @@ function SectionHeader({ title, subtitle, to }: { title: string; subtitle?: stri
 }
 
 function HomePage() {
-  const { banner, recommended, latest, isLoading } = useHomeData(1, 12);
+  const theme = useTheme();
+  const upSm = useMediaQuery(theme.breakpoints.up('sm'), { noSsr: true });
+  const upMd = useMediaQuery(theme.breakpoints.up('md'), { noSsr: true });
+  const upLg = useMediaQuery(theme.breakpoints.up('lg'), { noSsr: true });
+  const upXl = useMediaQuery(theme.breakpoints.up('xl'), { noSsr: true });
+  const masonryColumnCount = upXl ? 6 : upLg ? 5 : upMd ? 4 : upSm ? 3 : 2;
+
+  const latestPageSize = 20;
+  const { data: bannerData, isLoading: bannerLoading } = useBanner();
+  const { data: recommendedData, isLoading: recommendedLoading } = useRecommended();
+  const {
+    data: latestPagesData,
+    isLoading: latestLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useLatestInfinite(latestPageSize);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const latestItems = useMemo(() => {
+    const pages = latestPagesData?.pages ?? [];
+    const seen = new Set<number>();
+    const merged: (typeof pages)[number]['items'] = [];
+    for (const page of pages) {
+      for (const item of page.items) {
+        if (seen.has(item.id)) continue;
+        seen.add(item.id);
+        merged.push(item);
+      }
+    }
+    return merged;
+  }, [latestPagesData?.pages]);
+  const masonryColumns = useMemo(() => {
+    const columns = Array.from({ length: masonryColumnCount }, () => [] as (typeof latestItems)[number][]);
+    latestItems.forEach((item, index) => {
+      columns[index % masonryColumnCount]?.push(item);
+    });
+    return columns;
+  }, [latestItems, masonryColumnCount]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasNextPage || isFetchingNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        fetchNextPage();
+      },
+      { rootMargin: '720px 0px' }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+
+  const isLoading =
+    (bannerLoading || recommendedLoading || latestLoading) &&
+    (bannerData == null || recommendedData == null || latestItems.length === 0);
 
   if (isLoading) {
     return (
@@ -43,9 +100,8 @@ function HomePage() {
     );
   }
 
-  const bannerItems = banner.data ?? [];
-  const recommendedItems = recommended.data ?? [];
-  const latestItems = latest.data?.items ?? [];
+  const bannerItems = bannerData ?? [];
+  const recommendedItems = recommendedData ?? [];
   const visibleVideoCount = new Set([...recommendedItems, ...latestItems].map((item) => item.id)).size;
 
   return (
@@ -118,25 +174,42 @@ function HomePage() {
         </Box>
       )}
       <Box>
-        <SectionHeader title="最新添加" subtitle="按入库时间排序" to="/resources" />
+        <SectionHeader title="最新添加" />
         {latestItems.length > 0 ? (
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: 'repeat(2, minmax(0, 1fr))',
-                sm: 'repeat(3, minmax(0, 1fr))',
-                md: 'repeat(4, minmax(0, 1fr))',
-                lg: 'repeat(5, minmax(0, 1fr))',
-                xl: 'repeat(6, minmax(0, 1fr))',
-              },
-              gap: 2,
-            }}
-          >
-            {latestItems.map((v) => (
-              <VideoCard key={v.id} video={v} />
-            ))}
-          </Box>
+          <>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${masonryColumnCount}, minmax(0, 1fr))`,
+                gap: { xs: 1.5, md: 2 },
+                alignItems: 'start',
+              }}
+            >
+              {masonryColumns.map((column, columnIndex) => (
+                <Box key={columnIndex} sx={{ display: 'flex', flexDirection: 'column', gap: { xs: 1.5, md: 2 }, minWidth: 0 }}>
+                  {column.map((v) => (
+                    <VideoCard key={v.id} video={v} />
+                  ))}
+                </Box>
+              ))}
+            </Box>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 1.5 }}
+              ref={loadMoreRef}
+            >
+              {isFetchingNextPage ? (
+                <CircularProgress size={24} />
+              ) : hasNextPage ? (
+                <Button onClick={() => fetchNextPage()} variant="outlined" size="small">
+                  加载更多
+                </Button>
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  已加载全部内容
+                </Typography>
+              )}
+            </Box>
+          </>
         ) : (
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Typography variant="body2" color="text.secondary">
