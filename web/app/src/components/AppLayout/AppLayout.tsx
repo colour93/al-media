@@ -14,8 +14,10 @@ import {
   Tooltip,
   useTheme,
   useMediaQuery,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
-import { Home, Film, User, ArrowLeft, Download } from 'lucide-react';
+import { Home, FolderSearch, Search, User, ArrowLeft, Download } from 'lucide-react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAuthConfig, fetchAuthMe } from '../../api/auth';
@@ -35,6 +37,7 @@ export function AppLayout() {
   const showMobileBottomNav = !isDesktop && !onSecondLevelPage;
   const { shouldAutoPrompt, dismissAutoPrompt, requestInstall } = usePwaInstall();
   const [installingPwa, setInstallingPwa] = useState(false);
+  const [globalSearchInput, setGlobalSearchInput] = useState('');
 
   const { data: user } = useQuery({
     queryKey: ['authMe'],
@@ -50,8 +53,8 @@ export function AppLayout() {
   const navValue =
     pathname === '/'
       ? '/'
-      : pathname.startsWith('/videos')
-        ? '/videos'
+      : pathname.startsWith('/resources') || pathname.startsWith('/videos')
+        ? '/resources'
         : pathname === '/me'
           ? '/me'
           : pathname;
@@ -79,6 +82,18 @@ export function AppLayout() {
     }
   };
 
+  const handleGlobalSearch = () => {
+    navigate({
+      to: '/resources',
+      search: {
+        q: globalSearchInput || '',
+        category: 'all',
+        page: 1,
+        pageSize: 12,
+      },
+    });
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', pb: showMobileBottomNav ? 7 : 0 }}>
       {onSecondLevelPage ? (
@@ -90,6 +105,11 @@ export function AppLayout() {
               </Button>
               <Box sx={{ ml: 'auto', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                 {isDesktop ? <ThemeModeButton /> : null}
+                <Tooltip title="全局搜索">
+                  <IconButton component={Link} to="/resources" color="inherit" size="small">
+                    <Search size={18} />
+                  </IconButton>
+                </Tooltip>
                 {user ? (
                   <Tooltip title={user.name || user.email || '我的'}>
                     <IconButton component={Link} to="/me" color="inherit" size="small">
@@ -129,14 +149,36 @@ export function AppLayout() {
               </Button>
               <Button
                 component={Link}
-                to="/videos"
-                startIcon={<Film size={18} />}
-                color={navValue === '/videos' ? 'primary' : 'inherit'}
-                sx={{ fontWeight: navValue === '/videos' ? 700 : 400 }}
+                to="/resources"
+                startIcon={<FolderSearch size={18} />}
+                color={navValue === '/resources' ? 'primary' : 'inherit'}
+                sx={{ fontWeight: navValue === '/resources' ? 700 : 400 }}
               >
-                视频
+                资源
               </Button>
               <Box sx={{ flex: 1 }} />
+              <TextField
+                size="small"
+                placeholder="全局搜索"
+                value={globalSearchInput}
+                onChange={(e) => setGlobalSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleGlobalSearch();
+                  }
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search size={16} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ width: 260, mr: 1 }}
+              />
+              <Button size="small" variant="outlined" onClick={handleGlobalSearch}>
+                搜索
+              </Button>
               <ThemeModeButton />
               {user ? (
                 <Tooltip title={user.name || user.email || '我的'}>
@@ -175,10 +217,10 @@ export function AppLayout() {
             />
             <BottomNavigationAction
               component={Link}
-              to="/videos"
-              label="视频"
-              value="/videos"
-              icon={<Film size={22} />}
+              to="/resources"
+              label="资源"
+              value="/resources"
+              icon={<FolderSearch size={22} />}
             />
             {user ? (
               <BottomNavigationAction

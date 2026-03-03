@@ -75,3 +75,23 @@ export interface VideoInteractionState {
 export interface VideoHistoryItem extends VideoHistoryState {
   video: VideoDetail;
 }
+
+export type ResourceCategory = 'all' | 'video' | 'actor' | 'creator' | 'distributor' | 'tag';
+
+export type SearchActor = Actor & { tags?: Tag[] };
+export type SearchCreator = Creator & { actor?: Actor | null; tags?: Tag[] };
+export type SearchTag = Tag & { tagType?: TagType };
+
+export interface ResourceSearchResult {
+  q: string;
+  category: ResourceCategory;
+  filters: {
+    includeTagIds: number[];
+    excludeTagIds: number[];
+  };
+  videos: PaginatedResult<VideoDetail>;
+  actors: PaginatedResult<SearchActor>;
+  creators: PaginatedResult<SearchCreator>;
+  distributors: PaginatedResult<Distributor>;
+  tags: PaginatedResult<SearchTag>;
+}

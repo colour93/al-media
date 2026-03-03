@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VideosRouteImport } from './routes/videos'
+import { Route as ResourcesRouteImport } from './routes/resources'
 import { Route as MeRouteImport } from './routes/me'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
@@ -22,6 +23,11 @@ import { Route as ActorsIdRouteImport } from './routes/actors.$id'
 const VideosRoute = VideosRouteImport.update({
   id: '/videos',
   path: '/videos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResourcesRoute = ResourcesRouteImport.update({
+  id: '/resources',
+  path: '/resources',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MeRoute = MeRouteImport.update({
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
+  '/resources': typeof ResourcesRoute
   '/videos': typeof VideosRouteWithChildren
   '/actors/$id': typeof ActorsIdRoute
   '/creators/$id': typeof CreatorsIdRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
+  '/resources': typeof ResourcesRoute
   '/actors/$id': typeof ActorsIdRoute
   '/creators/$id': typeof CreatorsIdRoute
   '/tags/$id': typeof TagsIdRoute
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/me': typeof MeRoute
+  '/resources': typeof ResourcesRoute
   '/videos': typeof VideosRouteWithChildren
   '/actors/$id': typeof ActorsIdRoute
   '/creators/$id': typeof CreatorsIdRoute
@@ -104,6 +113,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/me'
+    | '/resources'
     | '/videos'
     | '/actors/$id'
     | '/creators/$id'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/me'
+    | '/resources'
     | '/actors/$id'
     | '/creators/$id'
     | '/tags/$id'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/me'
+    | '/resources'
     | '/videos'
     | '/actors/$id'
     | '/creators/$id'
@@ -137,6 +149,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   MeRoute: typeof MeRoute
+  ResourcesRoute: typeof ResourcesRoute
   VideosRoute: typeof VideosRouteWithChildren
   ActorsIdRoute: typeof ActorsIdRoute
   CreatorsIdRoute: typeof CreatorsIdRoute
@@ -150,6 +163,13 @@ declare module '@tanstack/react-router' {
       path: '/videos'
       fullPath: '/videos'
       preLoaderRoute: typeof VideosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/resources': {
+      id: '/resources'
+      path: '/resources'
+      fullPath: '/resources'
+      preLoaderRoute: typeof ResourcesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/me': {
@@ -228,6 +248,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   MeRoute: MeRoute,
+  ResourcesRoute: ResourcesRoute,
   VideosRoute: VideosRouteWithChildren,
   ActorsIdRoute: ActorsIdRoute,
   CreatorsIdRoute: CreatorsIdRoute,

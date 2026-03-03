@@ -49,7 +49,7 @@ function HomePage() {
       )}
       {recommendedItems.length > 0 && (
         <Box sx={{ mb: 4 }}>
-          <SectionHeader title="推荐" to="/videos" />
+          <SectionHeader title="推荐" to="/resources" />
           <Box
             sx={{
               display: 'grid',
@@ -67,7 +67,7 @@ function HomePage() {
         </Box>
       )}
       <Box sx={{ mb: 2 }}>
-        <SectionHeader title="最新添加" to="/videos" />
+        <SectionHeader title="最新添加" to="/resources" />
         <Box
           sx={{
             display: 'grid',
