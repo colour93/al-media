@@ -9,27 +9,11 @@ import {
   parseSearchQuery,
   searchQuerySchema,
 } from "../../utils/pagination";
-
-const SESSION_COOKIE = "al_media_session";
-
-function getCookieValue(cookieHeader: string | null, name: string): string | undefined {
-  if (!cookieHeader) return undefined;
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-  if (!match) return undefined;
-  let val = match[1].trim();
-  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-    val = val.slice(1, -1);
-  }
-  try {
-    return decodeURIComponent(val);
-  } catch {
-    return val;
-  }
-}
+import { resolveSessionTokenFromRequest } from "../../utils/sessionToken";
 
 async function resolveAuthedUserId(ctx: { request: Request; user?: { id: number; role?: string } | null }) {
   if (ctx.user?.id) return ctx.user.id;
-  const token = getCookieValue(ctx.request.headers.get("Cookie"), SESSION_COOKIE);
+  const token = resolveSessionTokenFromRequest(ctx.request);
   if (!token) return null;
   const payload = await verifySessionToken(token);
   if (!payload) return null;
