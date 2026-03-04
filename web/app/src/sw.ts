@@ -47,7 +47,18 @@ registerRoute(
   })
 );
 
-const navigationRoute = new NavigationRoute(createHandlerBoundToURL('/index.html'), {
+const appShellFallback = createHandlerBoundToURL('/index.html');
+const navigationRoute = new NavigationRoute(async (options) => {
+  try {
+    const response = await fetch(options.event.request, { cache: 'no-store' });
+    if (response.ok) {
+      return response;
+    }
+  } catch {
+    // Ignore network errors and fall back to the precached app shell.
+  }
+  return appShellFallback(options);
+}, {
   denylist: [/^\/api\//, /^\/admin\//],
 });
 registerRoute(navigationRoute);

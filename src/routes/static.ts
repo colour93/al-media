@@ -72,8 +72,14 @@ function isFileLikePath(pathname: string): boolean {
   return lastSegment.includes(".");
 }
 
+function setNoStoreHeaders(set: { headers: Record<string, string> }) {
+  set.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate";
+  set.headers["Pragma"] = "no-cache";
+  set.headers["Expires"] = "0";
+}
+
 function serveAppIndex(set: { headers: Record<string, string> }): Response {
-  set.headers["Cache-Control"] = "no-cache";
+  setNoStoreHeaders(set);
   return new Response(Bun.file(appIndexFile));
 }
 
@@ -82,12 +88,12 @@ function serveAppServiceWorker(set: { headers: Record<string, string> }): Respon
     set.status = 404;
     return "Not Found";
   }
-  set.headers["Cache-Control"] = "no-cache";
+  setNoStoreHeaders(set);
   return new Response(Bun.file(appServiceWorkerFile));
 }
 
 function serveAdminIndex(set: { headers: Record<string, string> }): Response {
-  set.headers["Cache-Control"] = "no-cache";
+  setNoStoreHeaders(set);
   return new Response(Bun.file(adminIndexFile));
 }
 
@@ -147,7 +153,12 @@ export const staticRoutes = new Elysia({ name: "static-routes" })
       return "Bad Request";
     }
     const file = fileResponse(absPath);
-    if (file) return file;
+    if (file) {
+      if (adminLocalPath === "/index.html") {
+        setNoStoreHeaders(set);
+      }
+      return file;
+    }
     if (isFileLikePath(pathname)) {
       set.status = 404;
       return "Not Found";
@@ -176,7 +187,9 @@ export const staticRoutes = new Elysia({ name: "static-routes" })
     }
     const file = fileResponse(absPath);
     if (file) {
-      if (pathname.startsWith("/static/")) {
+      if (pathname === "/index.html") {
+        setNoStoreHeaders(set);
+      } else if (pathname.startsWith("/static/")) {
         set.headers["Cache-Control"] = "public, max-age=31536000, immutable";
       }
       return file;
