@@ -5,6 +5,7 @@ import { extname } from "node:path";
 import { fileManager, FileCategory } from "./fileManager";
 import { videoFileManager } from "./videoFileManager";
 import { buildCommonSignedVideoFileUrl, buildSignedVideoFileUrl, verifyVideoFileSign } from "../utils/videoFileSign";
+import { createLogger } from "../utils/logger";
 
 const EXT_MIME: Record<string, string> = {
   jpg: "image/jpeg",
@@ -34,6 +35,8 @@ const getMime = (ext: string): string =>
 
 const getVideoMime = (ext: string): string =>
   VIDEO_EXT_MIME[ext.toLowerCase().replace(/^\./, "")] ?? "video/mp4";
+
+const logger = createLogger("fileService");
 
 function isSafeKey(key: string): boolean {
   return !key.includes("..") && !key.includes("/") && !key.includes("\\");
@@ -79,6 +82,20 @@ export type VideoSignError = { error: "视频文件 ID 无效" | "视频文件�
 
 export type VideoStreamResult = { stream: ReadableStream; headers: Record<string, string>; status: 200 | 206 };
 export type VideoStreamError = { error: "参数无效" | "签名无效或已过期" | "视频文件不存在" };
+export type VideoStreamProbeResult = { headers: Record<string, string>; status: 200 | 206 };
+export type VideoStreamProbeError = VideoStreamError;
+
+type VideoStreamResolvedContext = {
+  path: string;
+  status: 200 | 206;
+  start: number;
+  end: number;
+  fileSize: number;
+  contentLength: number;
+  headers: Record<string, string>;
+};
+
+type VideoStreamResolveError = VideoStreamError;
 
 class FileService {
   upload(file: File, category: FileCategory): Promise<UploadResult> {
@@ -134,23 +151,111 @@ class FileService {
     exp: string,
     rangeHeader: string
   ): Promise<VideoStreamResult | VideoStreamError> {
+    const resolved = await this.resolveVideoStreamContext(
+      videoFileId,
+      sign,
+      exp,
+      rangeHeader,
+      "get"
+    );
+    if ("error" in resolved) {
+      return resolved;
+    }
+
+    const streamStartAt = Date.now();
+    const nodeStream = createReadStream(resolved.path, {
+      start: resolved.start,
+      end: resolved.end,
+    });
+    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
+    logger.debug({
+      event: "video-stream-open",
+      ts: new Date().toISOString(),
+      videoFileId,
+      elapsedMs: Date.now() - streamStartAt,
+      status: resolved.status,
+      start: resolved.start,
+      end: resolved.end,
+      contentLength: resolved.contentLength,
+    });
+    return { stream: webStream, headers: resolved.headers, status: resolved.status };
+  }
+
+  async getVideoStreamProbe(
+    videoFileId: number,
+    sign: string,
+    exp: string,
+    rangeHeader: string
+  ): Promise<VideoStreamProbeResult | VideoStreamProbeError> {
+    const resolved = await this.resolveVideoStreamContext(
+      videoFileId,
+      sign,
+      exp,
+      rangeHeader,
+      "head"
+    );
+    if ("error" in resolved) {
+      return resolved;
+    }
+    return { headers: resolved.headers, status: resolved.status };
+  }
+
+  private async resolveVideoStreamContext(
+    videoFileId: number,
+    sign: string,
+    exp: string,
+    rangeHeader: string,
+    method: "get" | "head"
+  ): Promise<VideoStreamResolvedContext | VideoStreamResolveError> {
+    const requestStartedAt = Date.now();
+    const requestTs = new Date().toISOString();
+
     if (!Number.isInteger(videoFileId) || !sign || !exp) {
+      logger.warn({
+        event: "video-stream-validate-failed",
+        ts: requestTs,
+        method,
+        videoFileId,
+      });
       return { error: "参数无效" };
     }
-    if (!verifyVideoFileSign(videoFileId, sign, exp)) {
+
+    const verifyStartedAt = Date.now();
+    const signOk = verifyVideoFileSign(videoFileId, sign, exp);
+    const verifyElapsedMs = Date.now() - verifyStartedAt;
+    if (!signOk) {
+      logger.warn({
+        event: "video-stream-sign-failed",
+        ts: requestTs,
+        method,
+        videoFileId,
+        verifyElapsedMs,
+      });
       return { error: "签名无效或已过期" };
     }
+
+    const infoStartedAt = Date.now();
     const info = await videoFileManager.getVideoFileInfo(videoFileId);
+    const infoElapsedMs = Date.now() - infoStartedAt;
     if (!info) {
+      logger.warn({
+        event: "video-stream-info-missing",
+        ts: requestTs,
+        method,
+        videoFileId,
+        infoElapsedMs,
+      });
       return { error: "视频文件不存在" };
     }
+
     const { path, fileSize } = info;
+    const rangeStartedAt = Date.now();
+    const { start, end, status } = parseRangeHeader(rangeHeader, fileSize);
+    const rangeElapsedMs = Date.now() - rangeStartedAt;
+    const contentLength = end - start + 1;
     const ext = extname(path);
     const mime = getVideoMime(ext);
-    const { start, end, status } = parseRangeHeader(rangeHeader, fileSize);
-    const contentLength = end - start + 1;
-    const nodeStream = createReadStream(path, { start, end });
-    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
+
     const headers: Record<string, string> = {
       "Content-Type": mime,
       "Accept-Ranges": "bytes",
@@ -159,7 +264,33 @@ class FileService {
     if (status === 206) {
       headers["Content-Range"] = `bytes ${start}-${end}/${fileSize}`;
     }
-    return { stream: webStream, headers, status };
+
+    logger.debug({
+      event: "video-stream-resolved",
+      ts: requestTs,
+      method,
+      videoFileId,
+      totalElapsedMs: Date.now() - requestStartedAt,
+      verifyElapsedMs,
+      infoElapsedMs,
+      rangeElapsedMs,
+      rangeHeader: rangeHeader || "none",
+      status,
+      start,
+      end,
+      contentLength,
+      fileSize,
+    });
+
+    return {
+      path,
+      status,
+      start,
+      end,
+      fileSize,
+      contentLength,
+      headers,
+    };
   }
 }
 

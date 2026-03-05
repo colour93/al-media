@@ -75,6 +75,28 @@ export const fileRoutes = new Elysia({ prefix: "/file" })
       params: t.Object({ videoFileId: t.String() }),
     }
   )
+  .head(
+    "/video-stream/:videoFileId",
+    async ({ params, query, request, set }) => {
+      const videoFileId = Number(params.videoFileId);
+      const sign = query.sign ?? "";
+      const exp = query.exp ?? "";
+      const rangeHeader = request.headers.get("Range") ?? "";
+      const result = await fileService.getVideoStreamProbe(videoFileId, sign, exp, rangeHeader);
+      if ("error" in result) {
+        set.status = result.error === "参数无效" ? 400 : result.error === "签名无效或已过期" ? 403 : 404;
+        return { message: result.error };
+      }
+      return new Response(null, { status: result.status, headers: result.headers });
+    },
+    {
+      params: t.Object({ videoFileId: t.String() }),
+      query: t.Object({
+        sign: t.String(),
+        exp: t.String(),
+      }),
+    }
+  )
   .get(
     "/video-stream/:videoFileId",
     async ({ params, query, request, set }) => {

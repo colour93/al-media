@@ -69,6 +69,7 @@
 - `src/services/file.ts`
   - 文件上传/读取/删除（avatars/thumbnails/misc）
   - 视频签名 URL、Range 流式播放
+  - 视频探测（HEAD）快速响应：仅返回 `Content-Length/Content-Range/Accept-Ranges/Content-Type`，不创建文件流
 - `src/utils/videoFileSign.ts`
   - HMAC 签名生成与校验
 
