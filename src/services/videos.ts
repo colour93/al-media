@@ -328,6 +328,7 @@ class VideosService {
       {
         id: number;
         fileKey: string;
+        uniqueId: string;
         videoCodec: string | null;
         audioCodec: string | null;
         mp4MoovBeforeMdat: boolean | null;
@@ -347,6 +348,7 @@ class VideosService {
       });
       return {
         ...videoShape,
+        uniqueId: videoFileInfo?.uniqueId ?? null,
         ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
         ...(meta?.fileSize != null ? { fileSize: meta.fileSize } : {}),
         playCount: meta?.playCount ?? 0,
@@ -608,6 +610,7 @@ class VideosService {
         });
         return {
           ...shaped,
+          uniqueId: videoFileInfo?.uniqueId ?? null,
           videoFileUrl,
           videoFileKey: videoFileInfo?.fileKey ?? null,
           ...(meta?.videoDuration != null ? { videoDuration: meta.videoDuration } : {}),
@@ -887,6 +890,7 @@ class VideosService {
   ): Promise<{
     id: number;
     fileKey: string;
+    uniqueId: string;
     videoCodec: string | null;
     audioCodec: string | null;
     mp4MoovBeforeMdat: boolean | null;
@@ -904,6 +908,7 @@ class VideosService {
       {
         id: number;
         fileKey: string;
+        uniqueId: string;
         videoCodec: string | null;
         audioCodec: string | null;
         mp4MoovBeforeMdat: boolean | null;
@@ -918,6 +923,7 @@ class VideosService {
         preferredVideoFileId: videosTable.preferredVideoFileId,
         id: videoFilesTable.id,
         fileKey: videoFilesTable.fileKey,
+        uniqueId: videoFilesTable.uniqueId,
         videoCodec: videoFilesTable.videoCodec,
         audioCodec: videoFilesTable.audioCodec,
         mp4MoovBeforeMdat: videoFilesTable.mp4MoovBeforeMdat,
@@ -935,6 +941,7 @@ class VideosService {
         candidates: Array<{
           id: number;
           fileKey: string;
+          uniqueId: string;
           videoCodec: string | null;
           audioCodec: string | null;
           mp4MoovBeforeMdat: boolean | null;
@@ -951,6 +958,7 @@ class VideosService {
       bucket.candidates.push({
         id: row.id,
         fileKey: row.fileKey,
+        uniqueId: row.uniqueId,
         videoCodec: row.videoCodec,
         audioCodec: row.audioCodec,
         mp4MoovBeforeMdat: row.mp4MoovBeforeMdat,
@@ -963,6 +971,7 @@ class VideosService {
       {
         id: number;
         fileKey: string;
+        uniqueId: string;
         videoCodec: string | null;
         audioCodec: string | null;
         mp4MoovBeforeMdat: boolean | null;
@@ -982,6 +991,7 @@ class VideosService {
         map.set(videoId, {
           id: selected.id,
           fileKey: selected.fileKey,
+          uniqueId: selected.uniqueId,
           videoCodec: selected.videoCodec,
           audioCodec: selected.audioCodec,
           mp4MoovBeforeMdat: selected.mp4MoovBeforeMdat,
