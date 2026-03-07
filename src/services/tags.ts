@@ -100,15 +100,23 @@ class TagsService {
         return { page, pageSize, total: 0, items: [] };
       }
       const condition = inArray(videosTable.id, ids);
-      const [items, total] = await Promise.all([
+      const [pagedVideoRows, total] = await Promise.all([
         db.query.videosTable.findMany({
           where: condition,
           orderBy: (t, { desc }) => [desc(t.id)],
           limit: pageSize,
           offset,
+          columns: { id: true },
         }),
         db.$count(videosTable, condition),
       ]);
+      if (!pagedVideoRows.length) {
+        return { page, pageSize, total: total ?? 0, items: [] };
+      }
+      const { videosService } = await import("./videos");
+      const items = await videosService.findManyByIds(
+        pagedVideoRows.map((row) => row.id)
+      );
       return { page, pageSize, total: total ?? 0, items };
     }
     if (category === "actor") {
