@@ -130,6 +130,15 @@ type FolderChildrenCacheValue = {
   value: { items: Array<{ fileDirId: number; path: string; name: string }>; nextCursor: string | null };
 };
 
+type FolderPrefixesCacheValue = {
+  expiresAt: number;
+  value: {
+    items: string[];
+    total: number;
+    truncated: boolean;
+  };
+};
+
 export type VideoFileDuplicateGroup = {
   uniqueId: string;
   fileCount: number;
@@ -137,9 +146,29 @@ export type VideoFileDuplicateGroup = {
 };
 
 const FOLDER_CHILDREN_CACHE_TTL_MS = 15_000;
+const FOLDER_PREFIXES_CACHE_TTL_MS = 30_000;
 
 class VideoFilesService {
   private folderChildrenCache = new Map<string, FolderChildrenCacheValue>();
+  private folderPrefixesCache = new Map<string, FolderPrefixesCacheValue>();
+
+  private clearCacheByFileDirId<T>(cache: Map<string, T>, fileDirId?: number) {
+    if (!Number.isInteger(fileDirId) || (fileDirId as number) < 1) {
+      cache.clear();
+      return;
+    }
+    const keyPrefix = `${fileDirId}|`;
+    for (const key of cache.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        cache.delete(key);
+      }
+    }
+  }
+
+  invalidateFolderCaches(fileDirId?: number) {
+    this.clearCacheByFileDirId(this.folderChildrenCache, fileDirId);
+    this.clearCacheByFileDirId(this.folderPrefixesCache, fileDirId);
+  }
 
   private normalizeFolderPath(folderPath?: string): string {
     if (!folderPath) return "";
@@ -333,7 +362,7 @@ class VideoFilesService {
       fileKey: target.fileKey,
       uniqueId: target.uniqueId,
     };
-    this.folderChildrenCache.clear();
+    this.invalidateFolderCaches(target.fileDirId ?? undefined);
     return {
       item: deleted,
       removedFromDisk,
@@ -496,6 +525,51 @@ class VideoFilesService {
     const value = { items, nextCursor };
     this.folderChildrenCache.set(cacheKey, {
       expiresAt: now + FOLDER_CHILDREN_CACHE_TTL_MS,
+      value,
+    });
+    return value;
+  }
+
+  async listFolderPrefixes(
+    fileDirId: number,
+    limit = 5000
+  ): Promise<{ items: string[]; total: number; truncated: boolean }> {
+    const safeLimit = Math.max(1, Math.min(20000, Math.trunc(limit)));
+    const cacheKey = `${fileDirId}|${safeLimit}`;
+    const now = Date.now();
+    const cached = this.folderPrefixesCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    const rowsResult = await db.execute<{ path: string }>(sql`
+      with normalized as (
+        select regexp_split_to_array(replace("fileKey", chr(92), '/'), '/') as parts
+        from video_files
+        where "fileDirId" = ${fileDirId}
+          and position('/' in replace("fileKey", chr(92), '/')) > 0
+      ),
+      prefixes as (
+        select array_to_string(parts[1:idx], '/') as path
+        from normalized, generate_subscripts(parts, 1) as idx
+        where idx < array_length(parts, 1)
+      )
+      select distinct path
+      from prefixes
+      where path <> ''
+      order by path
+      limit ${safeLimit + 1}
+    `);
+
+    const allRows = rowsResult.rows
+      .map((row) => row.path?.trim())
+      .filter((path): path is string => !!path);
+    const total = allRows.length;
+    const truncated = total > safeLimit;
+    const items = truncated ? allRows.slice(0, safeLimit) : allRows;
+    const value = { items, total, truncated };
+    this.folderPrefixesCache.set(cacheKey, {
+      expiresAt: now + FOLDER_PREFIXES_CACHE_TTL_MS,
       value,
     });
     return value;

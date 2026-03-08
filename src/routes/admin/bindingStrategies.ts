@@ -48,6 +48,18 @@ export const bindingStrategiesRoutes = new Elysia({ prefix: "/binding-strategies
     { query: paginationQuerySchema }
   )
   .get(
+    "/folder-bindings",
+    async ({ query, set }) => {
+      const fileDirId = Number(query.fileDirId);
+      if (!Number.isInteger(fileDirId) || fileDirId < 1) {
+        set.status = 400;
+        return { message: "fileDirId 无效" };
+      }
+      return bindingStrategiesService.listFolderBindingsByFileDir(fileDirId);
+    },
+    { query: t.Object({ fileDirId: t.String() }) }
+  )
+  .get(
     "/:id",
     async ({ params, set }) => {
       const id = Number(params.id);

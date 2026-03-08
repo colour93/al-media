@@ -15,6 +15,7 @@ import { videoFileUniquesTable } from "../entities/VideoFileUnique";
 import { fileManager, FileCategory } from "./fileManager";
 import { videoFileIndexStrategiesService } from "./videoFileIndexStrategies";
 import { inspectMp4MoovAtom } from "../utils/mp4Atom";
+import { videoFilesService } from "./videoFiles";
 
 const ALLOWED_EXT = new Set([
   ".mp4",
@@ -320,6 +321,7 @@ class VideoFileManager {
         await db
           .delete(videoFilesTable)
           .where(and(eq(videoFilesTable.fileKey, relativePath), eq(videoFilesTable.fileDirId, dir.id)));
+        videoFilesService.invalidateFolderCaches(dir.id);
         this.logger.debug(
           `命中索引黑名单策略，已移除索引记录: ${path}, strategyId=${matchedIndexStrategy.id}`
         );
@@ -438,6 +440,7 @@ class VideoFileManager {
       this.logger.warn(`写入数据库未返回视频文件 ID: ${path}, fileDirId=${dir.id}`);
       return false;
     }
+    videoFilesService.invalidateFolderCaches(dir.id);
 
     const thumbnailKey = `${uniqueId}.jpg`;
     const hasExistingThumbnail = fileManager.exists(thumbnailKey, FileCategory.Thumbnails);
@@ -525,6 +528,7 @@ class VideoFileManager {
     }
     const relativePath = relative(dir.path, path);
     await db.delete(videoFilesTable).where(and(eq(videoFilesTable.fileKey, relativePath), eq(videoFilesTable.fileDirId, dir.id)));
+    videoFilesService.invalidateFolderCaches(dir.id);
   }
 
   async initWatchers(dirs: string[]) {

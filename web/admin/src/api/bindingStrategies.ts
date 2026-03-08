@@ -1,6 +1,6 @@
 import { get, post, put, del } from './client';
 import type { PaginatedResult } from './types';
-import type { BindingStrategy } from './types';
+import type { BindingFolderBindingSnapshot, BindingStrategy } from './types';
 
 const BASE = '/binding-strategies';
 
@@ -47,6 +47,12 @@ export async function fetchBindingStrategiesList(
 
 export async function fetchBindingStrategy(id: number): Promise<BindingStrategy> {
   return get<BindingStrategy>(`${BASE}/${id}`);
+}
+
+export async function fetchBindingFolderBindings(
+  fileDirId: number
+): Promise<BindingFolderBindingSnapshot> {
+  return get<BindingFolderBindingSnapshot>(`${BASE}/folder-bindings`, { fileDirId });
 }
 
 export async function createBindingStrategy(

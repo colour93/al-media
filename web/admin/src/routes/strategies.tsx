@@ -1,20 +1,25 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import {
+  Alert,
   Box,
-  Typography,
   Button,
-  TextField,
-  Switch,
-  MenuItem,
   Chip,
+  CircularProgress,
+  MenuItem,
+  Switch,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
 } from '@mui/material';
-import { Plus, Pencil, Trash2, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderTree, List, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { DataTable, type DataTableColumn } from '../components/DataTable/DataTable';
 import { FormDialog } from '../components/FormDialog/FormDialog';
 import { DeleteConfirm } from '../components/DeleteConfirm/DeleteConfirm';
 import {
+  useBindingFolderBindings,
   useBindingStrategiesList,
   useBindingStrategy,
   useBindingStrategyCreate,
@@ -31,13 +36,22 @@ import { fetchTag, fetchTagsList, searchTags } from '../api/tags';
 import { fetchActor, fetchActorsList, searchActors } from '../api/actors';
 import { fetchCreator, fetchCreatorsList, searchCreators } from '../api/creators';
 import { fetchDistributor, fetchDistributorsList, searchDistributors } from '../api/distributors';
-import { fetchVideoFileFolderChildren } from '../api/videoFiles';
+import { fetchVideoFileFolderChildren, fetchVideoFileFolderPrefixes } from '../api/videoFiles';
 import { EntityPreview } from '../components/EntityPreview/EntityPreview';
 import { EntityCreateAutocomplete } from '../components/EntityCreateAutocomplete/EntityCreateAutocomplete';
 import { renderLucideIcon } from '../utils/lucideIcons';
 import { getTagChipSx } from '../utils/tagChipSx';
 import { validateListSearch } from '../schemas/listSearch';
-import type { BindingStrategy, Tag, TagType, Actor, Creator, Distributor, FileDir } from '../api/types';
+import type {
+  Actor,
+  BindingFolderBindingItem,
+  BindingStrategy,
+  Creator,
+  Distributor,
+  FileDir,
+  Tag,
+  TagType,
+} from '../api/types';
 
 const STRATEGY_TYPES = [
   { value: 'folder' as const, label: '文件夹' },
@@ -50,6 +64,27 @@ export const Route = createFileRoute('/strategies')({
 });
 
 const ENTITY_SELECTOR_PAGE_SIZE = 20;
+const FOLDER_VIEW_PAGE_SIZE = 50;
+const FOLDER_ROW_HEIGHT = 56;
+const FOLDER_OVERSCAN = 8;
+
+type FolderNode = {
+  fileDirId: number;
+  path: string;
+  name: string;
+  isRoot?: boolean;
+};
+
+type CursorChunk<T> = {
+  items: T[];
+  nextCursor: string | null;
+  loading: boolean;
+  loaded: boolean;
+};
+
+type FolderTreeRow =
+  | { type: 'folder'; key: string; depth: number; node: FolderNode }
+  | { type: 'load-more'; key: string; depth: number; node: FolderNode };
 
 function mergeById<T extends { id: number }>(base: T[], extra: T[]): T[] {
   const map = new Map<number, T>();
@@ -66,6 +101,392 @@ function formatBindingSummary(s: BindingStrategy): string {
   if (s.actorIds?.length) parts.push(`${s.actorIds.length} 演员`);
   if (s.distributorIds?.length) parts.push(`${s.distributorIds.length} 发行方`);
   return parts.length ? parts.join('、') : '-';
+}
+
+function buildFolderKey(fileDirId: number, folderPath: string): string {
+  return `${fileDirId}:${folderPath}`;
+}
+
+function createEmptyCursorChunk<T>(): CursorChunk<T> {
+  return {
+    items: [],
+    nextCursor: null,
+    loading: false,
+    loaded: false,
+  };
+}
+
+function normalizeFolderPath(path: string): string {
+  return path
+    .trim()
+    .replace(/[\\]+/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+}
+
+function toFolderStrategyPath(path: string): string {
+  const normalized = normalizeFolderPath(path);
+  return normalized ? `${normalized}/` : '';
+}
+
+function buildMetaLabel(
+  label: string,
+  ids: number[],
+  resolveName: (id: number) => string | null
+): string | null {
+  if (ids.length === 0) return null;
+  const names = ids.map((id) => resolveName(id) ?? `#${id}`);
+  const head = names.slice(0, 2).join('、');
+  const remain = names.length > 2 ? ` +${names.length - 2}` : '';
+  return `${label}:${head}${remain}`;
+}
+
+function StrategyFolderView(props: {
+  fileDir: FileDir | null;
+  bindingsMap: Map<string, BindingFolderBindingItem>;
+  bindingsLoading: boolean;
+  tagsMap: Map<number, Tag & { tagType?: TagType | null }>;
+  creatorsMap: Map<number, Creator>;
+  actorsMap: Map<number, Actor>;
+  distributorsMap: Map<number, Distributor>;
+  onEditFolderBinding: (node: FolderNode, binding: BindingFolderBindingItem | null) => void;
+}) {
+  const {
+    fileDir,
+    bindingsMap,
+    bindingsLoading,
+    tagsMap,
+    creatorsMap,
+    actorsMap,
+    distributorsMap,
+    onEditFolderBinding,
+  } = props;
+
+  const rootNode = useMemo<FolderNode | null>(
+    () =>
+      fileDir
+        ? {
+          fileDirId: fileDir.id,
+          path: '',
+          name: fileDir.path,
+          isRoot: true,
+        }
+        : null,
+    [fileDir]
+  );
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [folderChildrenMap, setFolderChildrenMap] = useState<Record<string, CursorChunk<FolderNode>>>({});
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(520);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const folderChildrenMapRef = useRef<Record<string, CursorChunk<FolderNode>>>({});
+  const loadingFolderKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    folderChildrenMapRef.current = folderChildrenMap;
+  }, [folderChildrenMap]);
+
+  const loadMoreChildren = useCallback(
+    async (node: FolderNode) => {
+      const key = buildFolderKey(node.fileDirId, node.path);
+      const current = folderChildrenMapRef.current[key] ?? createEmptyCursorChunk<FolderNode>();
+      if (loadingFolderKeysRef.current.has(key)) return;
+      if (current.loading) return;
+      if (current.loaded && !current.nextCursor) return;
+      const cursor = current.nextCursor ?? undefined;
+
+      loadingFolderKeysRef.current.add(key);
+      setFolderChildrenMap((prev) => ({
+        ...prev,
+        [key]: {
+          ...(prev[key] ?? current),
+          loading: true,
+        },
+      }));
+
+      try {
+        const res = await fetchVideoFileFolderChildren({
+          fileDirId: node.fileDirId,
+          folderPath: node.path || undefined,
+          cursor,
+          pageSize: FOLDER_VIEW_PAGE_SIZE,
+        });
+        setFolderChildrenMap((prev) => {
+          const previous = prev[key] ?? createEmptyCursorChunk<FolderNode>();
+          const merged = [...previous.items, ...res.items.map((it) => ({ ...it, isRoot: false }))];
+          const dedupMap = new Map(merged.map((it) => [it.path, it]));
+          const nextCursor = res.nextCursor && res.nextCursor !== (cursor ?? null) ? res.nextCursor : null;
+          return {
+            ...prev,
+            [key]: {
+              items: Array.from(dedupMap.values()),
+              nextCursor,
+              loading: false,
+              loaded: true,
+            },
+          };
+        });
+      } catch {
+        setFolderChildrenMap((prev) => {
+          const previous = prev[key] ?? createEmptyCursorChunk<FolderNode>();
+          return {
+            ...prev,
+            [key]: {
+              ...previous,
+              nextCursor: null,
+              loading: false,
+              loaded: true,
+            },
+          };
+        });
+      } finally {
+        loadingFolderKeysRef.current.delete(key);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      if (!rootNode) {
+        loadingFolderKeysRef.current.clear();
+        folderChildrenMapRef.current = {};
+        setExpandedFolders(new Set());
+        setFolderChildrenMap({});
+        return;
+      }
+      const rootKey = buildFolderKey(rootNode.fileDirId, rootNode.path);
+      loadingFolderKeysRef.current.clear();
+      folderChildrenMapRef.current = {};
+      setExpandedFolders(new Set([rootKey]));
+      setFolderChildrenMap({});
+      setScrollTop(0);
+      void loadMoreChildren(rootNode);
+    });
+  }, [loadMoreChildren, rootNode]);
+
+  const toggleExpandFolder = useCallback(
+    (node: FolderNode) => {
+      const key = buildFolderKey(node.fileDirId, node.path);
+      setExpandedFolders((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      void loadMoreChildren(node);
+    },
+    [loadMoreChildren]
+  );
+
+  const rows = useMemo(() => {
+    if (!rootNode) return [];
+    const result: FolderTreeRow[] = [];
+    const append = (node: FolderNode, depth: number) => {
+      const key = buildFolderKey(node.fileDirId, node.path);
+      result.push({ type: 'folder', key: `folder:${key}`, depth, node });
+      if (!expandedFolders.has(key)) return;
+      const childChunk = folderChildrenMap[key] ?? createEmptyCursorChunk<FolderNode>();
+      for (const child of childChunk.items) {
+        append(child, depth + 1);
+      }
+      if (childChunk.loading || childChunk.nextCursor) {
+        result.push({
+          type: 'load-more',
+          key: `load-more:${key}`,
+          depth: depth + 1,
+          node,
+        });
+      }
+    };
+
+    append(rootNode, 0);
+    return result;
+  }, [expandedFolders, folderChildrenMap, rootNode]);
+
+  const totalHeight = rows.length * FOLDER_ROW_HEIGHT;
+  const startIndex = Math.max(0, Math.floor(scrollTop / FOLDER_ROW_HEIGHT) - FOLDER_OVERSCAN);
+  const endIndex = Math.min(
+    rows.length,
+    Math.ceil((scrollTop + viewportHeight) / FOLDER_ROW_HEIGHT) + FOLDER_OVERSCAN
+  );
+  const visibleRows = rows.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    const loadingMap = new Map<string, FolderNode>();
+    for (const row of visibleRows) {
+      if (row.type !== 'load-more') continue;
+      loadingMap.set(buildFolderKey(row.node.fileDirId, row.node.path), row.node);
+    }
+    if (loadingMap.size === 0) return;
+    queueMicrotask(() => {
+      for (const node of loadingMap.values()) {
+        void loadMoreChildren(node);
+      }
+    });
+  }, [visibleRows, loadMoreChildren]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setViewportHeight(el.clientHeight || 520);
+    update();
+    const onResize = () => update();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  if (!fileDir) {
+    return <Alert severity="info">请先选择启用的文件根路径。</Alert>;
+  }
+
+  return (
+    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+      <Box
+        ref={scrollRef}
+        onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+        sx={{ height: 'calc(100vh - 330px)', overflow: 'auto', position: 'relative' }}
+      >
+        <Box sx={{ height: totalHeight || FOLDER_ROW_HEIGHT, position: 'relative' }}>
+          {visibleRows.map((row, index) => {
+            const absoluteIndex = startIndex + index;
+            const top = absoluteIndex * FOLDER_ROW_HEIGHT;
+
+            if (row.type === 'load-more') {
+              return (
+                <Box
+                  key={row.key}
+                  sx={{
+                    position: 'absolute',
+                    top,
+                    left: 0,
+                    right: 0,
+                    height: FOLDER_ROW_HEIGHT,
+                    px: 1,
+                    pl: row.depth * 2 + 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: 'text.secondary',
+                  }}
+                >
+                  <CircularProgress size={14} />
+                  <Typography variant="caption">加载中…</Typography>
+                </Box>
+              );
+            }
+
+            const key = buildFolderKey(row.node.fileDirId, row.node.path);
+            const expanded = expandedFolders.has(key);
+            const binding = row.node.isRoot ? null : bindingsMap.get(normalizeFolderPath(row.node.path)) ?? null;
+            const tagLabel = binding
+              ? buildMetaLabel('标签', binding.tagIds, (id) => {
+                const tag = tagsMap.get(id);
+                if (!tag) return null;
+                return tag.tagType?.name ? `${tag.tagType.name}:${tag.name}` : tag.name;
+              })
+              : null;
+            const creatorLabel = binding
+              ? buildMetaLabel('创作者', binding.creatorIds, (id) => creatorsMap.get(id)?.name ?? null)
+              : null;
+            const actorLabel = binding
+              ? buildMetaLabel('演员', binding.actorIds, (id) => actorsMap.get(id)?.name ?? null)
+              : null;
+            const distributorLabel = binding
+              ? buildMetaLabel('发行方', binding.distributorIds, (id) => distributorsMap.get(id)?.name ?? null)
+              : null;
+            const metadataLabels = [tagLabel, creatorLabel, actorLabel, distributorLabel].filter(
+              (label): label is string => !!label
+            );
+
+            return (
+              <Box
+                key={row.key}
+                sx={{
+                  position: 'absolute',
+                  top,
+                  left: 0,
+                  right: 0,
+                  height: FOLDER_ROW_HEIGHT,
+                  px: 1,
+                  pl: row.depth * 2 + 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'action.hover' },
+                }}
+                onClick={() => toggleExpandFolder(row.node)}
+              >
+                {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <FolderTree size={16} />
+                <Typography
+                  variant="body2"
+                  title={row.node.isRoot ? row.node.name : row.node.path}
+                  sx={{
+                    minWidth: 180,
+                    maxWidth: 340,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {row.node.isRoot ? row.node.name : row.node.name}
+                </Typography>
+                {!row.node.isRoot && (
+                  <Box
+                    sx={{
+                      ml: 'auto',
+                      minWidth: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      flex: 1,
+                      justifyContent: 'flex-end',
+                    }}
+                  >
+                    {bindingsLoading ? <CircularProgress size={14} /> : null}
+                    {binding && metadataLabels.length > 0 ? (
+                      metadataLabels.map((label) => (
+                        <Chip
+                          key={label}
+                          label={label}
+                          size="small"
+                          variant="outlined"
+                          sx={{ maxWidth: 200 }}
+                        />
+                      ))
+                    ) : (
+                      <Chip size="small" variant="outlined" label="未绑定" />
+                    )}
+                    {binding && !binding.enabled ? (
+                      <Chip size="small" color="warning" label="未启用" />
+                    ) : null}
+                    {binding && binding.strategyCount > 1 ? (
+                      <Chip size="small" color="warning" label={`多策略(${binding.strategyCount})`} />
+                    ) : null}
+                    <Button
+                      size="small"
+                      variant={binding ? 'outlined' : 'contained'}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onEditFolderBinding(row.node, binding);
+                      }}
+                    >
+                      {binding ? '编辑' : '绑定'}
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+    </Box>
+  );
 }
 
 function StrategiesPage() {
@@ -112,28 +533,114 @@ function StrategiesPage() {
   const [additionalDistributors, setAdditionalDistributors] = useState<Distributor[]>([]);
   const [folderPrefixOptions, setFolderPrefixOptions] = useState<string[]>([]);
   const [folderPrefixLoading, setFolderPrefixLoading] = useState(false);
+  const [folderPrefixTruncated, setFolderPrefixTruncated] = useState(false);
   const [selectedQuickPrefix, setSelectedQuickPrefix] = useState('');
+  const [viewMode, setViewMode] = useState<'table' | 'folder'>('table');
+  const [folderViewFileDirId, setFolderViewFileDirId] = useState<number | ''>('');
 
-  const fileDirs = (fileDirsData?.items ?? []) as FileDir[];
+  const fileDirs = useMemo(() => (fileDirsData?.items ?? []) as FileDir[], [fileDirsData?.items]);
+  const enabledFileDirs = useMemo(() => fileDirs.filter((dir) => dir.enabled), [fileDirs]);
+  useEffect(() => {
+    if (enabledFileDirs.length === 0) {
+      if (folderViewFileDirId !== '') {
+        setFolderViewFileDirId('');
+      }
+      return;
+    }
+    if (
+      folderViewFileDirId === '' ||
+      !enabledFileDirs.some((dir) => dir.id === folderViewFileDirId)
+    ) {
+      setFolderViewFileDirId(enabledFileDirs[0]?.id ?? '');
+    }
+  }, [enabledFileDirs, folderViewFileDirId]);
+
+  const selectedFolderViewFileDir = useMemo(
+    () =>
+      folderViewFileDirId === ''
+        ? null
+        : enabledFileDirs.find((dir) => dir.id === folderViewFileDirId) ?? null,
+    [enabledFileDirs, folderViewFileDirId]
+  );
+  const { data: folderBindingsData, isLoading: folderBindingsLoading } = useBindingFolderBindings(
+    selectedFolderViewFileDir?.id ?? null
+  );
+  const folderBindingItems = useMemo(
+    () => (folderBindingsData?.items ?? []) as BindingFolderBindingItem[],
+    [folderBindingsData?.items]
+  );
+  const folderBindingsMap = useMemo(
+    () => new Map(folderBindingItems.map((item) => [normalizeFolderPath(item.folderPath), item])),
+    [folderBindingItems]
+  );
+
+  const folderBindingTags = useMemo(
+    () =>
+      (folderBindingsData?.tags ?? []) as (Tag & {
+        tagType?: TagType | null;
+      })[],
+    [folderBindingsData?.tags]
+  );
+  const folderBindingCreators = useMemo(
+    () => (folderBindingsData?.creators ?? []) as Creator[],
+    [folderBindingsData?.creators]
+  );
+  const folderBindingActors = useMemo(
+    () => (folderBindingsData?.actors ?? []) as Actor[],
+    [folderBindingsData?.actors]
+  );
+  const folderBindingDistributors = useMemo(
+    () => (folderBindingsData?.distributors ?? []) as Distributor[],
+    [folderBindingsData?.distributors]
+  );
+
   const tags = useMemo(
     () =>
       mergeById(
-        (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[],
+        mergeById(
+          (tagsData?.items ?? []) as (Tag & { tagType?: TagType })[],
+          folderBindingTags
+        ),
         additionalTags
       ),
-    [additionalTags, tagsData?.items]
+    [additionalTags, folderBindingTags, tagsData?.items]
   );
   const actors = useMemo(
-    () => mergeById((actorsData?.items ?? []) as Actor[], additionalActors),
-    [actorsData?.items, additionalActors]
+    () => mergeById(mergeById((actorsData?.items ?? []) as Actor[], folderBindingActors), additionalActors),
+    [actorsData?.items, additionalActors, folderBindingActors]
   );
   const creators = useMemo(
-    () => mergeById((creatorsData?.items ?? []) as Creator[], additionalCreators),
-    [additionalCreators, creatorsData?.items]
+    () =>
+      mergeById(
+        mergeById((creatorsData?.items ?? []) as Creator[], folderBindingCreators),
+        additionalCreators
+      ),
+    [additionalCreators, creatorsData?.items, folderBindingCreators]
   );
   const distributors = useMemo(
-    () => mergeById((distributorsData?.items ?? []) as Distributor[], additionalDistributors),
-    [additionalDistributors, distributorsData?.items]
+    () =>
+      mergeById(
+        mergeById((distributorsData?.items ?? []) as Distributor[], folderBindingDistributors),
+        additionalDistributors
+      ),
+    [additionalDistributors, distributorsData?.items, folderBindingDistributors]
+  );
+
+  const tagsMap = useMemo(
+    () => new Map(tags.map((tag) => [tag.id, tag])),
+    [tags]
+  );
+  const creatorsMap = useMemo(
+    () => new Map(creators.map((creator) => [creator.id, creator])),
+    [creators]
+  );
+  const actorsMap = useMemo(
+    () => new Map(actors.map((actor) => [actor.id, actor])),
+    [actors]
+  );
+  const distributorsMap = useMemo(
+    () => new Map(distributors.map((distributor) => [distributor.id, distributor])),
+    [distributors]
   );
 
   const handleOpenCreate = () => {
@@ -153,6 +660,7 @@ function StrategiesPage() {
     setAdditionalDistributors([]);
     setFolderPrefixOptions([]);
     setFolderPrefixLoading(false);
+    setFolderPrefixTruncated(false);
     setSelectedQuickPrefix('');
     setFormOpen(true);
   };
@@ -174,8 +682,62 @@ function StrategiesPage() {
     setAdditionalDistributors([]);
     setFolderPrefixOptions([]);
     setFolderPrefixLoading(false);
+    setFolderPrefixTruncated(false);
     setSelectedQuickPrefix('');
     setFormOpen(true);
+  };
+
+  const handleOpenFolderBindingEditor = (
+    node: FolderNode,
+    binding: BindingFolderBindingItem | null
+  ) => {
+    const folderPath = toFolderStrategyPath(node.path);
+    if (!folderPath) return;
+    const baseFileDirId = node.fileDirId;
+
+    if (binding?.primaryStrategyId) {
+      setEditing({
+        id: binding.primaryStrategyId,
+        type: 'folder',
+        fileDirId: baseFileDirId,
+        folderPath,
+        filenameRegex: null,
+        tagIds: [...binding.tagIds],
+        creatorIds: [...binding.creatorIds],
+        actorIds: [...binding.actorIds],
+        distributorIds: [...binding.distributorIds],
+        enabled: binding.enabled,
+        createdAt: '',
+        updatedAt: '',
+      });
+      setFormTagIds([...binding.tagIds]);
+      setFormCreatorIds([...binding.creatorIds]);
+      setFormActorIds([...binding.actorIds]);
+      setFormDistributorIds([...binding.distributorIds]);
+      setFormEnabled(binding.enabled);
+    } else {
+      setEditing(null);
+      setFormTagIds([]);
+      setFormCreatorIds([]);
+      setFormActorIds([]);
+      setFormDistributorIds([]);
+      setFormEnabled(true);
+    }
+
+    setFormType('folder');
+    setFormFileDirId(baseFileDirId);
+    setFormFolderPath(folderPath);
+    setFormFilenameRegex('');
+    setAdditionalTags([]);
+    setAdditionalActors([]);
+    setAdditionalCreators([]);
+    setAdditionalDistributors([]);
+    setFolderPrefixOptions([]);
+    setFolderPrefixLoading(false);
+    setFolderPrefixTruncated(false);
+    setSelectedQuickPrefix('');
+    setFormOpen(true);
+    if (editId) navigate({ search: (prev) => ({ ...prev, editId: undefined }) });
   };
 
   useEffect(() => {
@@ -203,6 +765,7 @@ function StrategiesPage() {
     if (!formOpen || formType !== 'folder' || formFileDirId === 'all') {
       setFolderPrefixOptions([]);
       setFolderPrefixLoading(false);
+      setFolderPrefixTruncated(false);
       setSelectedQuickPrefix('');
       return;
     }
@@ -211,44 +774,19 @@ function StrategiesPage() {
     const loadPrefixes = async () => {
       setFolderPrefixLoading(true);
       try {
-        const collected: string[] = [];
-        const queue: string[] = [''];
-        const visited = new Set<string>();
-        let guard = 0;
-
-        while (queue.length > 0 && guard < 5000) {
-          const folderPath = queue.shift() ?? '';
-          let cursor: string | undefined;
-          let pageGuard = 0;
-          do {
-            const result = await fetchVideoFileFolderChildren({
-              fileDirId: Number(formFileDirId),
-              folderPath: folderPath || undefined,
-              cursor,
-              pageSize: 50,
-            });
-            for (const item of result.items) {
-              if (visited.has(item.path)) continue;
-              visited.add(item.path);
-              collected.push(item.path);
-              queue.push(item.path);
-              guard += 1;
-              if (guard >= 5000) break;
-            }
-            cursor = result.nextCursor ?? undefined;
-            pageGuard += 1;
-          } while (cursor && pageGuard < 100);
-        }
+        const result = await fetchVideoFileFolderPrefixes({
+          fileDirId: Number(formFileDirId),
+          limit: 5000,
+        });
 
         if (!cancelled) {
-          const uniqueSorted = Array.from(new Set(collected)).sort((a, b) =>
-            a.localeCompare(b, 'zh-CN')
-          );
-          setFolderPrefixOptions(uniqueSorted);
+          setFolderPrefixOptions(result.items);
+          setFolderPrefixTruncated(result.truncated);
         }
       } catch {
         if (!cancelled) {
           setFolderPrefixOptions([]);
+          setFolderPrefixTruncated(false);
         }
       } finally {
         if (!cancelled) {
@@ -364,6 +902,7 @@ function StrategiesPage() {
     setAdditionalDistributors([]);
     setFolderPrefixOptions([]);
     setFolderPrefixLoading(false);
+    setFolderPrefixTruncated(false);
     setSelectedQuickPrefix('');
     if (editId) navigate({ search: (prev) => ({ ...prev, editId: undefined }) });
   };
@@ -463,57 +1002,121 @@ function StrategiesPage() {
         <Typography variant="h5" fontWeight={600}>
           绑定策略
         </Typography>
-        <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
-          新建
-        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ToggleButtonGroup
+            size="small"
+            value={viewMode}
+            exclusive
+            onChange={(_, mode: 'table' | 'folder' | null) => {
+              if (!mode) return;
+              setViewMode(mode);
+            }}
+            aria-label="策略视图切换"
+          >
+            <ToggleButton value="table" aria-label="列表视图">
+              <List size={16} />
+            </ToggleButton>
+            <ToggleButton value="folder" aria-label="文件夹视图">
+              <FolderTree size={16} />
+            </ToggleButton>
+          </ToggleButtonGroup>
+          <Button variant="contained" startIcon={<Plus size={18} />} onClick={handleOpenCreate}>
+            新建
+          </Button>
+        </Box>
       </Box>
 
-      <DataTable<BindingStrategy>
-        tableId="strategies"
-        columns={columns}
-        rows={items}
-        total={total}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={(p) => navigate({ search: (prev) => ({ ...prev, page: p }) })}
-        onPageSizeChange={(ps) =>
-          navigate({ search: (prev) => ({ ...prev, pageSize: ps, page: 1 }) })
-        }
-        loading={isLoading}
-        searchPlaceholder=""
-        searchValue={searchDraft}
-        onSearchChange={setSearchDraft}
-        onSearch={() => {}}
-        sortBy={sortBy}
-        sortOrder={sortOrder}
-        onSortChange={(by, order) =>
-          navigate({ search: (prev) => ({ ...prev, sortBy: by, sortOrder: order, page: 1 }) })
-        }
-        actions={(row) => (
-          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-            <Button
+      {viewMode === 'folder' ? (
+        <>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <TextField
+              select
               size="small"
-              startIcon={<Play size={14} />}
-              onClick={() => handleApply(row)}
-              disabled={applyMut.isPending}
+              label="文件根路径"
+              value={folderViewFileDirId}
+              onChange={(e) =>
+                setFolderViewFileDirId(e.target.value === '' ? '' : Number(e.target.value))
+              }
+              sx={{ minWidth: 360 }}
             >
-              应用
-            </Button>
-            <Button size="small" startIcon={<Pencil size={14} />} onClick={() => handleOpenEdit(row)}>
-              编辑
-            </Button>
-            <Button
-              size="small"
-              color="error"
-              startIcon={<Trash2 size={14} />}
-              onClick={() => setDeleteTarget(row)}
-            >
-              删除
-            </Button>
+              <MenuItem value="" disabled>
+                {enabledFileDirs.length === 0 ? '暂无可用目录' : '请选择目录'}
+              </MenuItem>
+              {enabledFileDirs.map((dir) => (
+                <MenuItem key={dir.id} value={dir.id}>
+                  {dir.path}
+                </MenuItem>
+              ))}
+            </TextField>
+            {selectedFolderViewFileDir ? (
+              <Typography variant="body2" color="text.secondary">
+                当前根路径共 {folderBindingItems.length} 个已配置绑定文件夹
+              </Typography>
+            ) : null}
           </Box>
-        )}
-        emptyMessage="暂无策略"
-      />
+          <StrategyFolderView
+            fileDir={selectedFolderViewFileDir}
+            bindingsMap={folderBindingsMap}
+            bindingsLoading={folderBindingsLoading}
+            tagsMap={tagsMap}
+            creatorsMap={creatorsMap}
+            actorsMap={actorsMap}
+            distributorsMap={distributorsMap}
+            onEditFolderBinding={handleOpenFolderBindingEditor}
+          />
+        </>
+      ) : (
+        <DataTable<BindingStrategy>
+          tableId="strategies"
+          columns={columns}
+          rows={items}
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={(p) => navigate({ search: (prev) => ({ ...prev, page: p }) })}
+          onPageSizeChange={(ps) =>
+            navigate({ search: (prev) => ({ ...prev, pageSize: ps, page: 1 }) })
+          }
+          loading={isLoading}
+          searchPlaceholder=""
+          searchValue={searchDraft}
+          onSearchChange={setSearchDraft}
+          onSearch={() => {}}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onSortChange={(by, order) =>
+            navigate({ search: (prev) => ({ ...prev, sortBy: by, sortOrder: order, page: 1 }) })
+          }
+          actions={(row) => (
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+              <Button
+                size="small"
+                startIcon={<Play size={14} />}
+                onClick={() => handleApply(row)}
+                disabled={applyMut.isPending}
+              >
+                应用
+              </Button>
+              <Button
+                size="small"
+                startIcon={<Pencil size={14} />}
+                onClick={() => handleOpenEdit(row)}
+              >
+                编辑
+              </Button>
+              <Button
+                size="small"
+                color="error"
+                startIcon={<Trash2 size={14} />}
+                onClick={() => setDeleteTarget(row)}
+              >
+                删除
+              </Button>
+            </Box>
+          )}
+          emptyMessage="暂无策略"
+        />
+      )}
 
       <FormDialog
         open={formOpen}
@@ -579,6 +1182,8 @@ function StrategiesPage() {
                 helperText={
                   folderPrefixLoading
                     ? '正在加载可用前缀...'
+                    : folderPrefixTruncated
+                      ? '前缀过多，仅展示前 5000 条，请手动输入更深路径'
                     : folderPrefixOptions.length > 0
                       ? '选择后会自动填入上方前缀输入框'
                       : '当前目录暂无可选前缀，可手动输入'

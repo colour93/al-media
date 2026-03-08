@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  fetchBindingFolderBindings,
   fetchBindingStrategiesList,
   fetchBindingStrategy,
   createBindingStrategy,
@@ -15,6 +16,7 @@ const KEYS = {
   list: (page: number, pageSize: number, sortBy?: string, sortOrder?: string) =>
     ['bindingStrategies', 'list', page, pageSize, sortBy, sortOrder] as const,
   detail: (id: number) => ['bindingStrategies', 'detail', id] as const,
+  folderBindings: (fileDirId: number) => ['bindingStrategies', 'folderBindings', fileDirId] as const,
 };
 
 export function useBindingStrategiesList(
@@ -35,6 +37,14 @@ export function useBindingStrategy(id: number | null) {
     queryKey: KEYS.detail(id!),
     queryFn: () => fetchBindingStrategy(id!),
     enabled: id != null,
+  });
+}
+
+export function useBindingFolderBindings(fileDirId: number | null) {
+  return useQuery({
+    queryKey: KEYS.folderBindings(fileDirId!),
+    queryFn: () => fetchBindingFolderBindings(fileDirId!),
+    enabled: fileDirId != null,
   });
 }
 

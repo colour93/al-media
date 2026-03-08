@@ -22,6 +22,8 @@ const hasVideoFilterSchema = t.Union([
   t.Literal("bound"),
   t.Literal("unbound"),
 ]);
+const MAX_FOLDER_PREFIX_LIMIT = 20000;
+const DEFAULT_FOLDER_PREFIX_LIMIT = 5000;
 
 function parseWebCompatibilityFilter(raw?: string): "all" | "compatible" | "incompatible" {
   if (raw === "compatible" || raw === "incompatible" || raw === "all") {
@@ -158,6 +160,28 @@ export const videoFilesRoutes = new Elysia({ prefix: "/video-files" })
         folderPath: t.Optional(t.String()),
         cursor: t.Optional(t.String()),
         pageSize: t.Optional(t.String()),
+      }),
+    }
+  )
+  .get(
+    "/folders/prefixes",
+    async ({ query, set }) => {
+      const fileDirId = Number(query.fileDirId);
+      const limit = query.limit ? Number(query.limit) : DEFAULT_FOLDER_PREFIX_LIMIT;
+      if (!Number.isInteger(fileDirId) || fileDirId < 1) {
+        set.status = 400;
+        return { message: "fileDirId 无效" };
+      }
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_FOLDER_PREFIX_LIMIT) {
+        set.status = 400;
+        return { message: "limit 无效" };
+      }
+      return videoFilesService.listFolderPrefixes(fileDirId, limit);
+    },
+    {
+      query: t.Object({
+        fileDirId: t.String(),
+        limit: t.Optional(t.String()),
       }),
     }
   )

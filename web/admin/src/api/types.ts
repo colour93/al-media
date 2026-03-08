@@ -48,6 +48,28 @@ export interface BindingStrategy {
   fileDir?: FileDir;
 }
 
+export interface BindingFolderBindingItem {
+  fileDirId: number;
+  folderPath: string;
+  strategyIds: number[];
+  primaryStrategyId: number | null;
+  strategyCount: number;
+  enabled: boolean;
+  tagIds: number[];
+  creatorIds: number[];
+  actorIds: number[];
+  distributorIds: number[];
+}
+
+export interface BindingFolderBindingSnapshot {
+  fileDirId: number;
+  items: BindingFolderBindingItem[];
+  tags: Array<Tag & { tagType: TagType | null }>;
+  creators: Creator[];
+  actors: Actor[];
+  distributors: Distributor[];
+}
+
 export type FileCategory = 'avatars' | 'thumbnails' | 'misc';
 
 export interface Actor {
@@ -196,6 +218,12 @@ export interface VideoFileFolderItem {
   fileDirId: number;
   path: string;
   name: string;
+}
+
+export interface VideoFileFolderPrefixesResult {
+  items: string[];
+  total: number;
+  truncated: boolean;
 }
 
 export interface VideoFileDuplicateGroup {

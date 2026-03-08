@@ -9,6 +9,7 @@ import { videoFilesTable } from "../entities/VideoFile";
 import { fileDirsTable } from "../entities/FileDir";
 import type { PaginatedResult } from "../utils/pagination";
 import { parseRegexInput } from "../utils/regex";
+import { videoFilesService } from "./videoFiles";
 
 export type VideoFileIndexStrategyMode = "blacklist";
 
@@ -240,6 +241,7 @@ class VideoFileIndexStrategiesService {
       .delete(videoFilesTable)
       .where(inArray(videoFilesTable.id, matchedIds))
       .returning({ id: videoFilesTable.id });
+    videoFilesService.invalidateFolderCaches(strategy.fileDirId ?? undefined);
     return {
       strategyId: id,
       removed: deleted.length,

@@ -7,6 +7,7 @@ import type {
   VideoFileDuplicateGroup,
   VideoFile,
   VideoFileFolderItem,
+  VideoFileFolderPrefixesResult,
   VideoFileIndexStrategy,
   VideoReencodeTask,
   VideoFileScanTask,
@@ -108,6 +109,17 @@ export async function fetchVideoFilesByFolder(params: {
   if (params.folderPath) query.folderPath = params.folderPath;
   if (params.cursor) query.cursor = params.cursor;
   return get<CursorListResult<VideoFile>>(`${BASE}/folders/files`, query);
+}
+
+export async function fetchVideoFileFolderPrefixes(params: {
+  fileDirId: number;
+  limit?: number;
+}): Promise<VideoFileFolderPrefixesResult> {
+  const query: Record<string, string | number> = {
+    fileDirId: params.fileDirId,
+    limit: params.limit ?? 5000,
+  };
+  return get<VideoFileFolderPrefixesResult>(`${BASE}/folders/prefixes`, query);
 }
 
 export async function fetchVideoFileScanTask(): Promise<VideoFileScanTask | null> {

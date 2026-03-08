@@ -5,6 +5,10 @@ import {
   type BindingStrategy,
   type NewBindingStrategy,
 } from "../entities/BindingStrategy";
+import { tagsTable, type Tag, type TagType } from "../entities/Tag";
+import { creatorsTable, type Creator } from "../entities/Creator";
+import { actorsTable, type Actor } from "../entities/Actor";
+import { distributorsTable, type Distributor } from "../entities/Distributor";
 import { videoFilesTable } from "../entities/VideoFile";
 import { videoUniqueContentsTable } from "../entities/VideoUniqueContent";
 import { videosService } from "./videos";
@@ -40,6 +44,28 @@ export type UpdateBindingStrategyInput = {
   enabled?: boolean;
 };
 
+export type FolderBindingSummaryItem = {
+  fileDirId: number;
+  folderPath: string;
+  strategyIds: number[];
+  primaryStrategyId: number | null;
+  strategyCount: number;
+  enabled: boolean;
+  tagIds: number[];
+  creatorIds: number[];
+  actorIds: number[];
+  distributorIds: number[];
+};
+
+export type FolderBindingSnapshot = {
+  fileDirId: number;
+  items: FolderBindingSummaryItem[];
+  tags: Array<Tag & { tagType: TagType | null }>;
+  creators: Creator[];
+  actors: Actor[];
+  distributors: Distributor[];
+};
+
 const STRATEGY_SORT_KEYS = ["id", "type", "fileDirId", "enabled", "createdAt", "updatedAt"] as const;
 
 function buildOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
@@ -55,6 +81,15 @@ function buildOrderBy(sortBy?: string, sortOrder?: "asc" | "desc") {
 }
 
 class BindingStrategiesService {
+  private normalizeFolderPath(folderPath?: string | null): string {
+    if (!folderPath) return "";
+    return folderPath
+      .trim()
+      .replace(/[\\]+/g, "/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+  }
+
   async findMany(
     page: number,
     pageSize: number,
@@ -87,6 +122,124 @@ class BindingStrategiesService {
       where: eq(bindingStrategiesTable.id, id),
       with: { fileDir: true },
     });
+  }
+
+  async listFolderBindingsByFileDir(fileDirId: number): Promise<FolderBindingSnapshot> {
+    const rows = await db.query.bindingStrategiesTable.findMany({
+      where: and(
+        eq(bindingStrategiesTable.type, "folder"),
+        eq(bindingStrategiesTable.fileDirId, fileDirId)
+      ),
+      columns: {
+        id: true,
+        folderPath: true,
+        enabled: true,
+        tagIds: true,
+        creatorIds: true,
+        actorIds: true,
+        distributorIds: true,
+      },
+      orderBy: (t, { asc: ascOrder }) => [ascOrder(t.id)],
+    });
+
+    const grouped = new Map<string, {
+      strategyIds: number[];
+      enabled: boolean;
+      tagIds: Set<number>;
+      creatorIds: Set<number>;
+      actorIds: Set<number>;
+      distributorIds: Set<number>;
+    }>();
+
+    for (const row of rows) {
+      const normalizedPath = this.normalizeFolderPath(row.folderPath);
+      if (!normalizedPath) continue;
+      if (!grouped.has(normalizedPath)) {
+        grouped.set(normalizedPath, {
+          strategyIds: [],
+          enabled: false,
+          tagIds: new Set<number>(),
+          creatorIds: new Set<number>(),
+          actorIds: new Set<number>(),
+          distributorIds: new Set<number>(),
+        });
+      }
+      const bucket = grouped.get(normalizedPath)!;
+      bucket.strategyIds.push(row.id);
+      bucket.enabled = bucket.enabled || row.enabled;
+      for (const id of row.tagIds ?? []) bucket.tagIds.add(id);
+      for (const id of row.creatorIds ?? []) bucket.creatorIds.add(id);
+      for (const id of row.actorIds ?? []) bucket.actorIds.add(id);
+      for (const id of row.distributorIds ?? []) bucket.distributorIds.add(id);
+    }
+
+    const items: FolderBindingSummaryItem[] = Array.from(grouped.entries())
+      .map(([folderPath, bucket]) => ({
+        fileDirId,
+        folderPath,
+        strategyIds: bucket.strategyIds,
+        primaryStrategyId: bucket.strategyIds[0] ?? null,
+        strategyCount: bucket.strategyIds.length,
+        enabled: bucket.enabled,
+        tagIds: Array.from(bucket.tagIds).sort((a, b) => a - b),
+        creatorIds: Array.from(bucket.creatorIds).sort((a, b) => a - b),
+        actorIds: Array.from(bucket.actorIds).sort((a, b) => a - b),
+        distributorIds: Array.from(bucket.distributorIds).sort((a, b) => a - b),
+      }))
+      .sort((a, b) => a.folderPath.localeCompare(b.folderPath, "zh-CN"));
+
+    const tagIdSet = new Set<number>();
+    const creatorIdSet = new Set<number>();
+    const actorIdSet = new Set<number>();
+    const distributorIdSet = new Set<number>();
+    for (const item of items) {
+      for (const id of item.tagIds) tagIdSet.add(id);
+      for (const id of item.creatorIds) creatorIdSet.add(id);
+      for (const id of item.actorIds) actorIdSet.add(id);
+      for (const id of item.distributorIds) distributorIdSet.add(id);
+    }
+
+    const tagIds = Array.from(tagIdSet);
+    const creatorIds = Array.from(creatorIdSet);
+    const actorIds = Array.from(actorIdSet);
+    const distributorIds = Array.from(distributorIdSet);
+
+    const [tags, creators, actors, distributors] = await Promise.all([
+      tagIds.length > 0
+        ? db.query.tagsTable.findMany({
+          where: inArray(tagsTable.id, tagIds),
+          with: { tagType: true },
+          orderBy: (t, { asc: ascOrder }) => [ascOrder(t.name), ascOrder(t.id)],
+        })
+        : Promise.resolve([]),
+      creatorIds.length > 0
+        ? db.query.creatorsTable.findMany({
+          where: inArray(creatorsTable.id, creatorIds),
+          orderBy: (t, { asc: ascOrder }) => [ascOrder(t.name), ascOrder(t.id)],
+        })
+        : Promise.resolve([]),
+      actorIds.length > 0
+        ? db.query.actorsTable.findMany({
+          where: inArray(actorsTable.id, actorIds),
+          orderBy: (t, { asc: ascOrder }) => [ascOrder(t.name), ascOrder(t.id)],
+        })
+        : Promise.resolve([]),
+      distributorIds.length > 0
+        ? db.query.distributorsTable.findMany({
+          where: inArray(distributorsTable.id, distributorIds),
+          orderBy: (t, { asc: ascOrder }) => [ascOrder(t.name), ascOrder(t.id)],
+        })
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      fileDirId,
+      items,
+      tags,
+      creators,
+      actors,
+      distributors,
+    };
   }
 
   async create(data: CreateBindingStrategyInput) {
